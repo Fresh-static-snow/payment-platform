@@ -1,10 +1,38 @@
 # Payment Platform
 
-Учебная production-like платёжная платформа на Go. Это не CRUD-демо: платформа показывает транзакционный outbox, CDC, at-least-once delivery, идемпотентность, optimistic locking, gRPC, durable workflows, поисковую и аналитическую проекции, Kubernetes, Terraform/AWS и полный локальный observability-стек.
+<p align="center">
+  <img src="assets/payment-platform-cover.png" alt="Event-driven payment platform: services, streaming, data and observability" width="100%">
+</p>
 
-Проект предназначен для изучения распределённых систем. Он не является процессингом реальных денег и не закрывает PCI DSS, организационные security controls, проверенные restore drills и multi-region эксплуатацию.
+<p align="center">
+  <strong>Production-like event-driven payment platform built with Go.</strong><br>
+  Reliable payments, asynchronous workflows, immutable accounting, search, analytics and observability — in one runnable local stack.
+</p>
 
-Подробные потоки, инварианты и ограничения описаны в [docs/architecture.md](docs/architecture.md).
+<p align="center">
+  <a href="#быстрый-старт">Quick start</a> ·
+  <a href="#архитектура">Architecture</a> ·
+  <a href="#rest-api">API</a> ·
+  <a href="#наблюдаемость">Observability</a> ·
+  <a href="docs/architecture.md">Design notes</a>
+</p>
+
+> [!IMPORTANT]
+> This is an educational system-design project, not a real-money processor. It does not claim PCI DSS compliance, organisational security controls, tested restore drills or multi-region operations.
+
+## О проекте
+
+**Payment Platform** — учебная, но production-like платёжная платформа на Go. Это не CRUD-демо: репозиторий показывает, как связать транзакционную запись, CDC, at-least-once delivery, идемпотентность, optimistic locking, gRPC, durable workflows, поисковую и аналитическую проекции, Kubernetes, Terraform/AWS и полный локальный observability-стек.
+
+| Что можно изучить | Как это реализовано |
+| --- | --- |
+| Надёжную асинхронную обработку | PostgreSQL outbox → Debezium CDC → Kafka с versioned topics и идемпотентными consumer-ами |
+| Жизненный цикл платежа | Payment state machine, risk scoring по gRPC, retry/circuit breaker и cancellation |
+| Учёт и возвраты | Double-entry ledger, reservation под блокировкой и Temporal workflows |
+| Читающие модели | Elasticsearch search, ClickHouse analytics и S3 receipts |
+| Эксплуатацию | Docker Compose, Kubernetes/Kustomize, Terraform AWS, Prometheus, Grafana, Tempo и Loki |
+
+Подробные потоки, инварианты и ограничения описаны в [документе об архитектуре](docs/architecture.md).
 
 ## Что реализовано
 
