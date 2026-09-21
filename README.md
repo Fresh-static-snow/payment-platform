@@ -369,7 +369,7 @@ curl http://localhost:13100/ready
 curl http://localhost:13200/ready
 ```
 
-Локальные backends используют filesystem volumes и короткую учебную конфигурацию. Для production нужны object storage, retention/capacity planning, HA, alert rules и доступ через authenticated ingress.
+Локальные backends используют filesystem volumes и компактную local-конфигурацию. Для production нужны object storage, retention/capacity planning, HA, alert rules и доступ через authenticated ingress.
 
 ## Kubernetes
 
