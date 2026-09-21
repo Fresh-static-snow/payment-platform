@@ -1,0 +1,48 @@
+{
+  "annotations": {"list": []},
+  "editable": true,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [],
+  "panels": [
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"unit": "reqps"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0},
+      "id": 1,
+      "options": {"legend": {"displayMode": "table", "placement": "bottom"}, "tooltip": {"mode": "multi"}},
+      "targets": [{"expr": "sum by (method, route, status) (rate(http_requests_total[5m]))", "legendFormat": "{{method}} {{route}} {{status}}", "refId": "A"}],
+      "title": "HTTP request rate",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"unit": "s"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0},
+      "id": 2,
+      "options": {"legend": {"displayMode": "table", "placement": "bottom"}, "tooltip": {"mode": "multi"}},
+      "targets": [{"expr": "histogram_quantile(0.95, sum by (le, service_name) (rate(traces_span_metrics_duration_milliseconds_bucket[5m]))) / 1000", "legendFormat": "p95 {{service_name}}", "refId": "A"}],
+      "title": "Trace p95 latency",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "loki", "uid": "loki"},
+      "gridPos": {"h": 10, "w": 24, "x": 0, "y": 8},
+      "id": 3,
+      "options": {"dedupStrategy": "none", "enableLogDetails": true, "showCommonLabels": false, "showLabels": false, "showTime": true, "sortOrder": "Descending", "wrapLogMessage": true},
+      "targets": [{"expr": "{k8s_namespace_name=\"payment-platform\"}", "queryType": "range", "refId": "A"}],
+      "title": "Platform logs",
+      "type": "logs"
+    }
+  ],
+  "refresh": "10s",
+  "schemaVersion": 40,
+  "tags": ["payment-platform", "observability"],
+  "templating": {"list": []},
+  "time": {"from": "now-1h", "to": "now"},
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "Payment Platform Observability",
+  "uid": "payment-platform-observability",
+  "version": 1
+}

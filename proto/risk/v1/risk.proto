@@ -1,0 +1,35 @@
+syntax = "proto3";
+
+package risk.v1;
+
+import "google/protobuf/timestamp.proto";
+
+option go_package = "github.com/praedyth/payment-platform/gen/risk/v1;riskv1";
+
+service RiskService {
+  rpc AssessPayment(AssessPaymentRequest) returns (AssessPaymentResponse);
+}
+
+message AssessPaymentRequest {
+  string payment_id = 1;
+  string user_id = 2;
+  int64 amount = 3;
+  string currency = 4;
+}
+
+enum Decision {
+  DECISION_UNSPECIFIED = 0;
+  DECISION_ALLOW = 1;
+  DECISION_DENY = 2;
+}
+
+message AssessPaymentResponse {
+  string decision_id = 1;
+  string payment_id = 2;
+  string rules_version = 3;
+  int32 score = 4;
+  Decision decision = 5;
+  repeated string reasons = 6;
+  google.protobuf.Timestamp created_at = 7;
+}
+

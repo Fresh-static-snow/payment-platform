@@ -1,0 +1,21 @@
+aws_region     = "eu-central-1"
+aws_account_id = "123456789012"
+
+cluster_admin_arns = [
+  "arn:aws:iam::123456789012:role/platform-production-admin",
+]
+
+domain_name    = "payments.example.com"
+hosted_zone_id = "Z0123456789EXAMPLE"
+
+external_application_secret_arns = [
+  # "arn:aws:secretsmanager:eu-central-1:123456789012:secret:payment-platform-prod/clickhouse-...",
+]
+external_application_secret_kms_key_arns = [
+  # "arn:aws:kms:eu-central-1:123456789012:key/00000000-0000-0000-0000-000000000000",
+]
+
+tags = {
+  Owner      = "platform-team"
+  CostCenter = "payments"
+}

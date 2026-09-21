@@ -1,0 +1,27 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: payment-platform
+resources:
+  - namespace.yaml
+  - service-account.yaml
+  - app-config.yaml
+  - app-secret.yaml
+  - infrastructure-secret.yaml
+  - migration-job.yaml
+  - apps/payment-api.yaml
+  - apps/payment-worker.yaml
+  - apps/risk-service.yaml
+  - apps/ledger-service.yaml
+  - apps/receipt-service.yaml
+  - apps/notification-service.yaml
+  - apps/payment-search-indexer.yaml
+  - apps/payment-search-service.yaml
+  - apps/analytics-ingestor.yaml
+  - apps/workflow-service.yaml
+  - autoscaling.yaml
+  - pod-disruption-budgets.yaml
+  - network-policies.yaml
+labels:
+  - pairs:
+      app.kubernetes.io/part-of: payment-platform
+    includeSelectors: false

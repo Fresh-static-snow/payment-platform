@@ -1,0 +1,82 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny
+spec:
+  podSelector: {}
+  policyTypes: [Ingress, Egress]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-dns
+spec:
+  podSelector: {}
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - {protocol: UDP, port: 53}
+        - {protocol: TCP, port: 53}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-within-platform
+spec:
+  podSelector: {}
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - podSelector: {}
+  egress:
+    - to:
+        - podSelector: {}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-payment-api-ingress
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: payment-api
+  policyTypes: [Ingress]
+  ingress:
+    - ports:
+        - protocol: TCP
+          port: 8080
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-search-api-ingress
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: payment-search-service
+  policyTypes: [Ingress]
+  ingress:
+    - ports:
+        - protocol: TCP
+          port: 8089
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-workflow-api-ingress
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: workflow-service
+  policyTypes: [Ingress]
+  ingress:
+    - ports:
+        - protocol: TCP
+          port: 8087

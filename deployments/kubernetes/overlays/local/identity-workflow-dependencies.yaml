@@ -1,0 +1,341 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: keycloak-postgres
+  labels:
+    app.kubernetes.io/name: keycloak-postgres
+spec:
+  clusterIP: None
+  selector:
+    app.kubernetes.io/name: keycloak-postgres
+  ports:
+    - {name: postgres, port: 5432}
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: keycloak-postgres
+spec:
+  serviceName: keycloak-postgres
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: keycloak-postgres
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: keycloak-postgres
+        app.kubernetes.io/component: identity-database
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:17-alpine
+          env:
+            - {name: POSTGRES_DB, value: keycloak}
+            - {name: POSTGRES_USER, value: keycloak}
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: payment-platform-infrastructure-secrets
+                  key: KEYCLOAK_DB_PASSWORD
+            - {name: PGDATA, value: /var/lib/postgresql/data/pgdata}
+          ports:
+            - {name: postgres, containerPort: 5432}
+          startupProbe:
+            exec: {command: ["/bin/sh", "-ec", "pg_isready -U keycloak -d keycloak"]}
+            periodSeconds: 3
+            failureThreshold: 60
+          readinessProbe:
+            exec: {command: ["/bin/sh", "-ec", "pg_isready -U keycloak -d keycloak"]}
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket: {port: postgres}
+            periodSeconds: 20
+          resources:
+            requests: {cpu: 50m, memory: 128Mi}
+            limits: {cpu: 500m, memory: 512Mi}
+          volumeMounts:
+            - {name: data, mountPath: /var/lib/postgresql/data}
+  volumeClaimTemplates:
+    - metadata: {name: data}
+      spec:
+        accessModes: [ReadWriteOnce]
+        resources: {requests: {storage: 1Gi}}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: keycloak
+  labels:
+    app.kubernetes.io/name: keycloak
+spec:
+  selector:
+    app.kubernetes.io/name: keycloak
+  ports:
+    - {name: http, port: 8080, targetPort: http}
+    - {name: management, port: 9000, targetPort: management}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: keycloak
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: keycloak
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: keycloak
+        app.kubernetes.io/component: identity-provider
+    spec:
+      terminationGracePeriodSeconds: 30
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: keycloak
+          image: quay.io/keycloak/keycloak:26.7.3
+          args: ["start-dev", "--import-realm"]
+          env:
+            - {name: KC_DB, value: postgres}
+            - {name: KC_DB_URL, value: "jdbc:postgresql://keycloak-postgres:5432/keycloak"}
+            - {name: KC_DB_USERNAME, value: keycloak}
+            - name: KC_DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: payment-platform-infrastructure-secrets
+                  key: KEYCLOAK_DB_PASSWORD
+            - name: KC_BOOTSTRAP_ADMIN_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: payment-platform-infrastructure-secrets
+                  key: KEYCLOAK_ADMIN_USER
+            - name: KC_BOOTSTRAP_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: payment-platform-infrastructure-secrets
+                  key: KEYCLOAK_ADMIN_PASSWORD
+            - {name: KC_HTTP_ENABLED, value: "true"}
+            - {name: KC_HOSTNAME, value: "http://localhost:18080"}
+            - {name: KC_HOSTNAME_BACKCHANNEL_DYNAMIC, value: "true"}
+            - {name: KC_HOSTNAME_STRICT, value: "false"}
+            - {name: KC_HEALTH_ENABLED, value: "true"}
+            - {name: KC_METRICS_ENABLED, value: "true"}
+          ports:
+            - {name: http, containerPort: 8080}
+            - {name: management, containerPort: 9000}
+          startupProbe:
+            httpGet: {path: /health/started, port: management}
+            periodSeconds: 5
+            failureThreshold: 60
+          readinessProbe:
+            httpGet: {path: /health/ready, port: management}
+            periodSeconds: 10
+            timeoutSeconds: 5
+          livenessProbe:
+            httpGet: {path: /health/live, port: management}
+            periodSeconds: 20
+            timeoutSeconds: 5
+          resources:
+            requests: {cpu: 100m, memory: 384Mi}
+            limits: {cpu: "1", memory: 1Gi}
+          volumeMounts:
+            - {name: realm, mountPath: /opt/keycloak/data/import/payments-realm.json, subPath: payment-realm.json, readOnly: true}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+      volumes:
+        - name: realm
+          configMap:
+            name: keycloak-realm
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: temporal-postgres
+  labels:
+    app.kubernetes.io/name: temporal-postgres
+spec:
+  clusterIP: None
+  selector:
+    app.kubernetes.io/name: temporal-postgres
+  ports:
+    - {name: postgres, port: 5432}
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: temporal-postgres
+spec:
+  serviceName: temporal-postgres
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: temporal-postgres
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: temporal-postgres
+        app.kubernetes.io/component: workflow-database
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:17-alpine
+          env:
+            - {name: POSTGRES_DB, value: temporal}
+            - {name: POSTGRES_USER, value: temporal}
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: payment-platform-infrastructure-secrets
+                  key: TEMPORAL_DB_PASSWORD
+            - {name: PGDATA, value: /var/lib/postgresql/data/pgdata}
+          ports:
+            - {name: postgres, containerPort: 5432}
+          startupProbe:
+            exec: {command: ["/bin/sh", "-ec", "pg_isready -U temporal -d temporal"]}
+            periodSeconds: 3
+            failureThreshold: 60
+          readinessProbe:
+            exec: {command: ["/bin/sh", "-ec", "pg_isready -U temporal -d temporal"]}
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket: {port: postgres}
+            periodSeconds: 20
+          resources:
+            requests: {cpu: 50m, memory: 128Mi}
+            limits: {cpu: 500m, memory: 512Mi}
+          volumeMounts:
+            - {name: data, mountPath: /var/lib/postgresql/data}
+  volumeClaimTemplates:
+    - metadata: {name: data}
+      spec:
+        accessModes: [ReadWriteOnce]
+        resources: {requests: {storage: 2Gi}}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: temporal
+  labels:
+    app.kubernetes.io/name: temporal
+spec:
+  selector:
+    app.kubernetes.io/name: temporal
+  ports:
+    - {name: grpc, port: 7233, targetPort: grpc}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: temporal
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: temporal
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: temporal
+        app.kubernetes.io/component: workflow-engine
+    spec:
+      terminationGracePeriodSeconds: 60
+      containers:
+        - name: temporal
+          image: temporalio/auto-setup:1.29.4.1
+          env:
+            - {name: DB, value: postgres12}
+            - {name: DB_PORT, value: "5432"}
+            - {name: POSTGRES_USER, value: temporal}
+            - name: POSTGRES_PWD
+              valueFrom:
+                secretKeyRef:
+                  name: payment-platform-infrastructure-secrets
+                  key: TEMPORAL_DB_PASSWORD
+            - {name: POSTGRES_SEEDS, value: temporal-postgres}
+            - {name: DYNAMIC_CONFIG_FILE_PATH, value: config/dynamicconfig/docker.yaml}
+            - {name: ENABLE_ES, value: "false"}
+          ports:
+            - {name: grpc, containerPort: 7233}
+          startupProbe:
+            exec:
+              command: ["temporal", "operator", "cluster", "health", "--address", "127.0.0.1:7233"]
+            periodSeconds: 5
+            failureThreshold: 90
+          readinessProbe:
+            exec:
+              command: ["temporal", "operator", "cluster", "health", "--address", "127.0.0.1:7233"]
+            periodSeconds: 10
+            timeoutSeconds: 5
+          livenessProbe:
+            exec:
+              command: ["temporal", "operator", "cluster", "health", "--address", "127.0.0.1:7233"]
+            periodSeconds: 20
+            timeoutSeconds: 5
+          resources:
+            requests: {cpu: 250m, memory: 512Mi}
+            limits: {cpu: "2", memory: 2Gi}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: temporal-ui
+  labels:
+    app.kubernetes.io/name: temporal-ui
+spec:
+  selector:
+    app.kubernetes.io/name: temporal-ui
+  ports:
+    - {name: http, port: 8080, targetPort: http}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: temporal-ui
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: temporal-ui
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: temporal-ui
+        app.kubernetes.io/component: workflow-console
+    spec:
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: temporal-ui
+          image: temporalio/ui:2.54.1
+          env:
+            - {name: TEMPORAL_ADDRESS, value: "temporal:7233"}
+            - {name: TEMPORAL_CORS_ORIGINS, value: "http://localhost:8088"}
+          ports:
+            - {name: http, containerPort: 8080}
+          startupProbe:
+            httpGet: {path: /, port: http}
+            periodSeconds: 5
+            failureThreshold: 60
+          readinessProbe:
+            httpGet: {path: /, port: http}
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: {path: /, port: http}
+            periodSeconds: 20
+          resources:
+            requests: {cpu: 50m, memory: 128Mi}
+            limits: {cpu: 500m, memory: 512Mi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]

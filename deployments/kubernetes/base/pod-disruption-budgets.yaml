@@ -1,0 +1,99 @@
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: payment-api
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: payment-api
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: payment-worker
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: payment-worker
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: risk-service
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: risk-service
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: ledger-service
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: ledger-service
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: receipt-service
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: receipt-service
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: notification-service
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: notification-service
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: payment-search-indexer
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: payment-search-indexer
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: payment-search-service
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: payment-search-service
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: analytics-ingestor
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: analytics-ingestor
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: workflow-service
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: workflow-service

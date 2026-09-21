@@ -1,0 +1,51 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: payment-platform
+  namespace: payment-platform
+  annotations:
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/target-type: ip
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP":80},{"HTTPS":443}]'
+    alb.ingress.kubernetes.io/ssl-redirect: "443"
+    alb.ingress.kubernetes.io/certificate-arn: ${CERTIFICATE_ARN}
+    alb.ingress.kubernetes.io/healthcheck-path: /health
+    external-dns.alpha.kubernetes.io/ttl: "60"
+spec:
+  ingressClassName: alb
+  rules:
+    - host: api.${DOMAIN_NAME}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: payment-api
+                port:
+                  name: http
+    - host: search.${DOMAIN_NAME}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: payment-search-service
+                port:
+                  name: http
+    - host: workflow.${DOMAIN_NAME}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: workflow-service
+                port:
+                  name: http
+  tls:
+    - hosts:
+        - api.${DOMAIN_NAME}
+        - search.${DOMAIN_NAME}
+        - workflow.${DOMAIN_NAME}

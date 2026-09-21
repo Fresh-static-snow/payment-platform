@@ -1,0 +1,78 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: analytics-ingestor
+spec:
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+      maxSurge: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: analytics-ingestor
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: analytics-ingestor
+        app.kubernetes.io/component: analytics-projection
+    spec:
+      serviceAccountName: payment-platform
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 30
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: analytics-ingestor
+          image: payment-platform/analytics-ingestor:local
+          imagePullPolicy: IfNotPresent
+          envFrom:
+            - configMapRef:
+                name: payment-platform-config
+            - secretRef:
+                name: payment-platform-secrets
+          env:
+            - name: HTTP_PORT
+              value: "8090"
+          ports:
+            - name: http
+              containerPort: 8090
+          startupProbe:
+            httpGet: {path: /health, port: http}
+            periodSeconds: 2
+            failureThreshold: 45
+          livenessProbe:
+            httpGet: {path: /health, port: http}
+            periodSeconds: 10
+            timeoutSeconds: 2
+          readinessProbe:
+            httpGet: {path: /ready, port: http}
+            periodSeconds: 5
+            timeoutSeconds: 3
+          resources:
+            requests: {cpu: 75m, memory: 96Mi}
+            limits: {cpu: 750m, memory: 256Mi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: analytics-ingestor
+  labels:
+    app.kubernetes.io/name: analytics-ingestor
+spec:
+  selector:
+    app.kubernetes.io/name: analytics-ingestor
+  ports:
+    - name: http
+      port: 8090
+      targetPort: http

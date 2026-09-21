@@ -1,0 +1,32 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: kafka-init
+spec:
+  backoffLimit: 12
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: kafka-init
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: kafka-init
+          image: apache/kafka:3.9.1
+          command: ["/bin/sh", "-ec"]
+          args:
+            - |
+              until /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --list >/dev/null 2>&1; do sleep 3; done
+              topics="payment.created.v1 payment.processing.v1 payment.completed.v1 payment.failed.v1 payment.cancelled.v1 refund.requested.v1 refund.processing.v1 refund.completed.v1 refund.failed.v1 receipt.requested.v1 receipt.created.v1 notification.requested.v1 ledger.posted.v1"
+              for topic in $topics; do
+                /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic "$topic" --partitions 3 --replication-factor 1
+                /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic "$topic.dlq" --partitions 3 --replication-factor 1
+              done
+              /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic __debezium-heartbeat.payment-platform --partitions 1 --replication-factor 1
+              compact_topics="payment.connect-configs payment.connect-offsets payment.connect-status"
+              for topic in $compact_topics; do
+                /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic "$topic" --partitions 1 --replication-factor 1 --config cleanup.policy=compact
+              done
+          resources:
+            requests: {cpu: 25m, memory: 128Mi}
+            limits: {cpu: 250m, memory: 512Mi}

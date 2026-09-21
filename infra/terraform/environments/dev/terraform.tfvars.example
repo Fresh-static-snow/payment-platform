@@ -1,0 +1,26 @@
+aws_region     = "eu-central-1"
+aws_account_id = "123456789012"
+
+cluster_admin_arns = [
+  "arn:aws:iam::123456789012:role/platform-admin",
+]
+
+# For private-only EKS access, keep this false and use VPN/SSM/runner in the VPC.
+endpoint_public_access = false
+public_access_cidrs    = []
+
+# Optional Route53 + ACM. Provide an existing zone or set create_hosted_zone.
+domain_name       = null
+create_hosted_zone = false
+hosted_zone_id    = null
+
+# Add managed ClickHouse/Temporal/Keycloak secret ARNs when those services are
+# provisioned by their own provider-specific stacks. Add their customer-managed
+# KMS keys too; leave the KMS set empty for the AWS-managed Secrets Manager key.
+external_application_secret_arns = []
+external_application_secret_kms_key_arns = []
+
+tags = {
+  Owner      = "platform-team"
+  CostCenter = "learning"
+}

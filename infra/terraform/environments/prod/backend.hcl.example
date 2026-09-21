@@ -1,0 +1,6 @@
+bucket       = "replace-with-bootstrap-output"
+key          = "payment-platform/prod/terraform.tfstate"
+region       = "eu-central-1"
+kms_key_id   = "replace-with-bootstrap-output"
+encrypt      = true
+use_lockfile = true

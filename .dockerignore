@@ -1,0 +1,10 @@
+.git
+.env
+bin
+coverage.out
+README.md
+**/.terraform
+**/*.tfstate
+**/*.tfstate.*
+**/*.tfplan
+deployments/kubernetes/overlays/aws/generated

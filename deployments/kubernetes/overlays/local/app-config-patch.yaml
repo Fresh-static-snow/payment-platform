@@ -1,0 +1,9 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: payment-platform-config
+data:
+  # Tokens requested through `kubectl port-forward service/keycloak 18080:8080`
+  # carry this browser-reachable issuer. Services fetch signing keys through the
+  # separate in-cluster AUTH_JWKS_URL from the base ConfigMap.
+  AUTH_ISSUER_URL: http://localhost:18080/realms/payments

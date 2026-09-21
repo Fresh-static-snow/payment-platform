@@ -1,0 +1,31 @@
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: payment-api
+spec:
+  minReplicas: 1
+  maxReplicas: 3
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: risk-service
+spec:
+  minReplicas: 1
+  maxReplicas: 3
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: payment-search-service
+spec:
+  minReplicas: 1
+  maxReplicas: 3
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: workflow-service
+spec:
+  minReplicas: 1
+  maxReplicas: 3

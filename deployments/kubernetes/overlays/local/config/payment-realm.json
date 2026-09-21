@@ -1,0 +1,68 @@
+{
+  "realm": "payments",
+  "enabled": true,
+  "displayName": "Payment Platform",
+  "sslRequired": "none",
+  "registrationAllowed": false,
+  "loginWithEmailAllowed": true,
+  "duplicateEmailsAllowed": false,
+  "roles": {
+    "realm": [
+      {"name": "payment-user", "description": "Can manage payments owned by the authenticated user"},
+      {"name": "payment-admin", "description": "Payment platform administrator"}
+    ]
+  },
+  "clients": [
+    {
+      "clientId": "payment-api",
+      "name": "Payment API",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": true,
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": true,
+      "serviceAccountsEnabled": false,
+      "redirectUris": ["http://localhost:*/*"],
+      "webOrigins": ["+"],
+      "defaultClientScopes": ["web-origins", "acr", "roles", "basic", "profile", "email"],
+      "protocolMappers": [
+        {
+          "name": "payment-api-audience",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "consentRequired": false,
+          "config": {
+            "included.client.audience": "payment-api",
+            "id.token.claim": "false",
+            "access.token.claim": "true",
+            "introspection.token.claim": "true"
+          }
+        }
+      ]
+    }
+  ],
+  "users": [
+    {
+      "id": "2c507d0b-e69b-4789-82f0-d48e102387a1",
+      "username": "dev-user",
+      "email": "dev-user@example.test",
+      "firstName": "Dev",
+      "lastName": "User",
+      "enabled": true,
+      "emailVerified": true,
+      "realmRoles": ["payment-user"],
+      "credentials": [{"type": "password", "value": "dev-password", "temporary": false}]
+    },
+    {
+      "id": "d9aefed6-96ff-444c-8f70-8ccb786c0090",
+      "username": "dev-admin",
+      "email": "dev-admin@example.test",
+      "firstName": "Dev",
+      "lastName": "Admin",
+      "enabled": true,
+      "emailVerified": true,
+      "realmRoles": ["payment-user", "payment-admin"],
+      "credentials": [{"type": "password", "value": "dev-admin-password", "temporary": false}]
+    }
+  ]
+}

@@ -1,0 +1,8 @@
+# Copy the values printed by `terraform output -raw backend_hcl` after the
+# one-time bootstrap apply. Environment-specific `key` is set in that
+# environment's own backend.hcl.
+bucket       = "replace-with-bootstrap-output"
+region       = "eu-central-1"
+kms_key_id   = "replace-with-bootstrap-output"
+encrypt      = true
+use_lockfile = true

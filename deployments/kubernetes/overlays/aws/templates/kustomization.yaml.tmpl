@@ -1,0 +1,272 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../../../base
+  - service-accounts.yaml
+  - external-secrets.yaml
+  ${INGRESS_RESOURCE}
+  - kafka-init.yaml
+  - cdc.yaml
+  - managed-egress.yaml
+patches:
+  - target:
+      group: ""
+      version: v1
+      kind: Namespace
+      name: payment-platform
+    patch: |-
+      - op: add
+        path: /metadata/annotations
+        value:
+          argocd.argoproj.io/sync-wave: "-4"
+  - path: config-patch.yaml
+  - path: receipt-patch.yaml
+  - path: notification-patch.yaml
+  - target:
+      group: ""
+      version: v1
+      kind: Secret
+      name: payment-platform-secrets
+    patch: |-
+      apiVersion: v1
+      kind: Secret
+      metadata:
+        name: payment-platform-secrets
+      ${DOLLAR}patch: delete
+  - target:
+      group: ""
+      version: v1
+      kind: Secret
+      name: payment-platform-infrastructure-secrets
+    patch: |-
+      apiVersion: v1
+      kind: Secret
+      metadata:
+        name: payment-platform-infrastructure-secrets
+      ${DOLLAR}patch: delete
+  - target:
+      group: apps
+      version: v1
+      kind: Deployment
+      name: payment-api
+    patch: |-
+      - op: add
+        path: /metadata/annotations
+        value:
+          secret.reloader.stakater.com/reload: payment-database-secret,payment-redis-secret
+      - op: replace
+        path: /spec/template/spec/containers/0/envFrom
+        value:
+          - configMapRef:
+              name: payment-platform-config
+          - secretRef:
+              name: payment-database-secret
+          - secretRef:
+              name: payment-redis-secret
+  - target:
+      group: apps
+      version: v1
+      kind: Deployment
+      name: payment-worker
+    patch: |-
+      - op: add
+        path: /metadata/annotations
+        value:
+          secret.reloader.stakater.com/reload: payment-database-secret,payment-redis-secret
+      - op: replace
+        path: /spec/template/spec/containers/0/envFrom
+        value:
+          - configMapRef:
+              name: payment-platform-config
+          - secretRef:
+              name: payment-database-secret
+          - secretRef:
+              name: payment-redis-secret
+  - target:
+      group: apps
+      version: v1
+      kind: Deployment
+      name: risk-service
+    patch: |-
+      - op: add
+        path: /metadata/annotations
+        value:
+          secret.reloader.stakater.com/reload: payment-database-secret
+      - op: replace
+        path: /spec/template/spec/containers/0/envFrom
+        value:
+          - configMapRef:
+              name: payment-platform-config
+          - secretRef:
+              name: payment-database-secret
+  - target:
+      group: apps
+      version: v1
+      kind: Deployment
+      name: ledger-service
+    patch: |-
+      - op: add
+        path: /metadata/annotations
+        value:
+          secret.reloader.stakater.com/reload: payment-database-secret
+      - op: replace
+        path: /spec/template/spec/containers/0/envFrom
+        value:
+          - configMapRef:
+              name: payment-platform-config
+          - secretRef:
+              name: payment-database-secret
+  - target:
+      group: apps
+      version: v1
+      kind: Deployment
+      name: receipt-service
+    patch: |-
+      - op: add
+        path: /metadata/annotations
+        value:
+          secret.reloader.stakater.com/reload: payment-database-secret
+      - op: replace
+        path: /spec/template/spec/containers/0/envFrom
+        value:
+          - configMapRef:
+              name: payment-platform-config
+          - secretRef:
+              name: payment-database-secret
+  - target:
+      group: apps
+      version: v1
+      kind: Deployment
+      name: notification-service
+    patch: |-
+      - op: add
+        path: /metadata/annotations
+        value:
+          secret.reloader.stakater.com/reload: payment-database-secret
+      - op: replace
+        path: /spec/template/spec/containers/0/envFrom
+        value:
+          - configMapRef:
+              name: payment-platform-config
+          - secretRef:
+              name: payment-database-secret
+  - target:
+      group: apps
+      version: v1
+      kind: Deployment
+      name: workflow-service
+    patch: |-
+      - op: add
+        path: /metadata/annotations
+        value:
+          secret.reloader.stakater.com/reload: payment-database-secret
+      - op: replace
+        path: /spec/template/spec/containers/0/envFrom
+        value:
+          - configMapRef:
+              name: payment-platform-config
+          - secretRef:
+              name: payment-database-secret
+  - target:
+      group: apps
+      version: v1
+      kind: Deployment
+      name: payment-search-indexer
+    patch: |-
+      - op: add
+        path: /metadata/annotations
+        value:
+          secret.reloader.stakater.com/reload: payment-search-secret
+      - op: replace
+        path: /spec/template/spec/containers/0/envFrom
+        value:
+          - configMapRef:
+              name: payment-platform-config
+          - secretRef:
+              name: payment-search-secret
+  - target:
+      group: apps
+      version: v1
+      kind: Deployment
+      name: payment-search-service
+    patch: |-
+      - op: add
+        path: /metadata/annotations
+        value:
+          secret.reloader.stakater.com/reload: payment-search-secret
+      - op: replace
+        path: /spec/template/spec/containers/0/envFrom
+        value:
+          - configMapRef:
+              name: payment-platform-config
+          - secretRef:
+              name: payment-search-secret
+  - target:
+      group: apps
+      version: v1
+      kind: Deployment
+      name: analytics-ingestor
+    patch: |-
+      - op: add
+        path: /metadata/annotations
+        value:
+          secret.reloader.stakater.com/reload: payment-analytics-secret
+      - op: replace
+        path: /spec/template/spec/containers/0/envFrom
+        value:
+          - configMapRef:
+              name: payment-platform-config
+          - secretRef:
+              name: payment-analytics-secret
+  - target:
+      group: batch
+      version: v1
+      kind: Job
+      name: database-migrate
+    patch: |-
+      - op: replace
+        path: /metadata/annotations/argocd.argoproj.io~1hook
+        value: Sync
+      - op: add
+        path: /metadata/annotations/argocd.argoproj.io~1sync-wave
+        value: "-1"
+      - op: replace
+        path: /spec/template/spec/initContainers/0/envFrom/0/secretRef/name
+        value: payment-database-secret
+      - op: replace
+        path: /spec/template/spec/containers/0/envFrom/0/secretRef/name
+        value: payment-database-secret
+images:
+  - name: payment-platform/payment-api
+    newName: ${ECR_PAYMENT_API}
+    newTag: ${IMAGE_TAG}
+  - name: payment-platform/payment-worker
+    newName: ${ECR_PAYMENT_WORKER}
+    newTag: ${IMAGE_TAG}
+  - name: payment-platform/risk-service
+    newName: ${ECR_RISK_SERVICE}
+    newTag: ${IMAGE_TAG}
+  - name: payment-platform/ledger-service
+    newName: ${ECR_LEDGER_SERVICE}
+    newTag: ${IMAGE_TAG}
+  - name: payment-platform/receipt-service
+    newName: ${ECR_RECEIPT_SERVICE}
+    newTag: ${IMAGE_TAG}
+  - name: payment-platform/notification-service
+    newName: ${ECR_NOTIFICATION_SERVICE}
+    newTag: ${IMAGE_TAG}
+  - name: payment-platform/workflow-service
+    newName: ${ECR_WORKFLOW_SERVICE}
+    newTag: ${IMAGE_TAG}
+  - name: payment-platform/payment-search-indexer
+    newName: ${ECR_SEARCH_INDEXER}
+    newTag: ${IMAGE_TAG}
+  - name: payment-platform/payment-search-service
+    newName: ${ECR_SEARCH_SERVICE}
+    newTag: ${IMAGE_TAG}
+  - name: payment-platform/analytics-ingestor
+    newName: ${ECR_ANALYTICS_INGESTOR}
+    newTag: ${IMAGE_TAG}
+  - name: payment-platform/migrations
+    newName: ${ECR_MIGRATIONS}
+    newTag: ${IMAGE_TAG}

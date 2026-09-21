@@ -1,0 +1,9 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: notification-service
+spec:
+  template:
+    spec:
+      serviceAccountName: notification-service
+      automountServiceAccountToken: true

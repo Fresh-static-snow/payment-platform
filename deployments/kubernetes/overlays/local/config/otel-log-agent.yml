@@ -1,0 +1,53 @@
+extensions:
+  health_check:
+    endpoint: 0.0.0.0:13133
+
+receivers:
+  filelog:
+    include:
+      - /var/log/pods/*/*/*.log
+    include_file_path: true
+    start_at: beginning
+    operators:
+      - type: container
+      - type: regex_parser
+        parse_from: attributes["log.file.path"]
+        regex: '^.*/(?P<namespace_name>[^_]+)_(?P<pod_name>[^_]+)_(?P<pod_uid>[a-f0-9-]+)/(?P<container_name>[^/]+)/(?P<restart_count>\d+)\.log$'
+      - type: move
+        from: attributes.namespace_name
+        to: resource["k8s.namespace.name"]
+      - type: move
+        from: attributes.pod_name
+        to: resource["k8s.pod.name"]
+      - type: move
+        from: attributes.pod_uid
+        to: resource["k8s.pod.uid"]
+      - type: move
+        from: attributes.container_name
+        to: resource["k8s.container.name"]
+
+processors:
+  memory_limiter:
+    check_interval: 1s
+    limit_mib: 192
+    spike_limit_mib: 48
+  resource/service:
+    attributes:
+      - key: service.name
+        from_attribute: k8s.container.name
+        action: upsert
+  batch:
+    timeout: 2s
+    send_batch_size: 512
+
+exporters:
+  otlphttp/loki:
+    endpoint: http://loki:3100/otlp
+
+service:
+  extensions: [health_check]
+  pipelines:
+    logs:
+      receivers: [filelog]
+      processors: [memory_limiter, resource/service, batch]
+      exporters: [otlphttp/loki]

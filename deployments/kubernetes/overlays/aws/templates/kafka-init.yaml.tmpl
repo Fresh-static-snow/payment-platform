@@ -1,0 +1,63 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: kafka-init
+  namespace: payment-platform
+  annotations:
+    argocd.argoproj.io/hook: Sync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation,HookSucceeded
+    argocd.argoproj.io/sync-wave: "-1"
+spec:
+  backoffLimit: 20
+  ttlSecondsAfterFinished: 600
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: kafka-init
+        app.kubernetes.io/component: infrastructure-init
+    spec:
+      restartPolicy: OnFailure
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: kafka-init
+          image: apache/kafka:3.9.1
+          command: ["/bin/sh", "-ec"]
+          args:
+            - |
+              printf '%s\n' 'security.protocol=SSL' > /tmp/client.properties
+              until /opt/kafka/bin/kafka-topics.sh \
+                --bootstrap-server '${KAFKA_BROKERS}' \
+                --command-config /tmp/client.properties \
+                --list >/dev/null 2>&1; do
+                sleep 5
+              done
+
+              topics="payment.created.v1 payment.processing.v1 payment.completed.v1 payment.failed.v1 payment.cancelled.v1 refund.requested.v1 refund.processing.v1 refund.completed.v1 refund.failed.v1 receipt.requested.v1 receipt.created.v1 notification.requested.v1 ledger.posted.v1"
+              for topic in ${DOLLAR}topics; do
+                /opt/kafka/bin/kafka-topics.sh --bootstrap-server '${KAFKA_BROKERS}' --command-config /tmp/client.properties --create --if-not-exists --topic "${DOLLAR}topic" --partitions 3 --replication-factor '${KAFKA_REPLICATION_FACTOR}'
+                /opt/kafka/bin/kafka-topics.sh --bootstrap-server '${KAFKA_BROKERS}' --command-config /tmp/client.properties --create --if-not-exists --topic "${DOLLAR}topic.dlq" --partitions 3 --replication-factor '${KAFKA_REPLICATION_FACTOR}'
+              done
+
+              /opt/kafka/bin/kafka-topics.sh --bootstrap-server '${KAFKA_BROKERS}' --command-config /tmp/client.properties --create --if-not-exists --topic __debezium-heartbeat.payment-platform --partitions 1 --replication-factor '${KAFKA_REPLICATION_FACTOR}'
+              compact_topics="payment.connect-configs payment.connect-offsets payment.connect-status"
+              for topic in ${DOLLAR}compact_topics; do
+                /opt/kafka/bin/kafka-topics.sh --bootstrap-server '${KAFKA_BROKERS}' --command-config /tmp/client.properties --create --if-not-exists --topic "${DOLLAR}topic" --partitions 1 --replication-factor '${KAFKA_REPLICATION_FACTOR}' --config cleanup.policy=compact
+              done
+          resources:
+            requests: {cpu: 25m, memory: 128Mi}
+            limits: {cpu: 500m, memory: 512Mi}
+          volumeMounts:
+            - {name: tmp, mountPath: /tmp}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+      volumes:
+        - name: tmp
+          emptyDir: {}

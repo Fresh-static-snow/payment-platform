@@ -1,0 +1,92 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: risk-service
+spec:
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: risk-service
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: risk-service
+        app.kubernetes.io/component: risk
+    spec:
+      serviceAccountName: payment-platform
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 30
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: risk-service
+      containers:
+        - name: risk-service
+          image: payment-platform/risk-service:local
+          imagePullPolicy: IfNotPresent
+          envFrom:
+            - configMapRef:
+                name: payment-platform-config
+            - secretRef:
+                name: payment-platform-secrets
+          env:
+            - name: HTTP_PORT
+              value: "8086"
+            - name: GRPC_PORT
+              value: "9090"
+          ports:
+            - name: grpc
+              containerPort: 9090
+            - name: http
+              containerPort: 8086
+          startupProbe:
+            httpGet: {path: /health, port: http}
+            periodSeconds: 2
+            failureThreshold: 30
+          livenessProbe:
+            httpGet: {path: /health, port: http}
+            periodSeconds: 10
+            timeoutSeconds: 2
+          readinessProbe:
+            httpGet: {path: /ready, port: http}
+            periodSeconds: 5
+            timeoutSeconds: 3
+          resources:
+            requests: {cpu: 100m, memory: 96Mi}
+            limits: {cpu: 500m, memory: 256Mi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: risk-service
+  labels:
+    app.kubernetes.io/name: risk-service
+spec:
+  selector:
+    app.kubernetes.io/name: risk-service
+  ports:
+    - name: grpc
+      port: 9090
+      targetPort: grpc
+    - name: http
+      port: 8086
+      targetPort: http

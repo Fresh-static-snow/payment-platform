@@ -1,0 +1,761 @@
+name: payment-platform
+
+x-app-environment: &app-environment
+  APP_ENV: local
+  DATABASE_URL: postgres://${POSTGRES_USER:-payment}:${POSTGRES_PASSWORD:-payment}@postgres:5432/${POSTGRES_DB:-payments}?sslmode=disable
+  REDIS_ADDR: redis:6379
+  REDIS_USERNAME: ${REDIS_USERNAME:-}
+  REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+  REDIS_TLS_ENABLED: ${REDIS_TLS_ENABLED:-false}
+  KAFKA_BROKERS: kafka:29092
+  KAFKA_TLS_ENABLED: ${KAFKA_TLS_ENABLED:-false}
+  RISK_GRPC_ADDR: risk-service:9090
+  AWS_ENDPOINT: http://localstack:4566
+  AWS_REGION: ${AWS_REGION:-us-east-1}
+  AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-test}
+  AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-test}
+  S3_BUCKET: ${S3_BUCKET:-payment-receipts}
+  SNS_TOPIC_ARN: arn:aws:sns:${AWS_REGION:-us-east-1}:000000000000:${SNS_TOPIC_NAME:-payment-notifications}
+  SQS_QUEUE_URL: http://localstack:4566/000000000000/${SQS_QUEUE_NAME:-payment-notifications}
+  WORKER_COUNT: ${WORKER_COUNT:-4}
+  PROVIDER_TIMEOUT: ${PROVIDER_TIMEOUT:-2s}
+  SHUTDOWN_TIMEOUT: ${SHUTDOWN_TIMEOUT:-15s}
+  OTEL_EXPORTER_OTLP_ENDPOINT: otel-collector:4317
+  AUTH_DISABLED: ${AUTH_DISABLED:-true}
+  AUTH_ISSUER_URL: ${AUTH_ISSUER_URL:-http://localhost:18080/realms/payments}
+  AUTH_AUDIENCE: ${AUTH_AUDIENCE:-payment-api}
+  AUTH_JWKS_URL: http://keycloak:8080/realms/payments/protocol/openid-connect/certs
+  AUTH_REQUIRED_ROLE: ${AUTH_REQUIRED_ROLE:-payment-user}
+  AUTH_ROLE_CLIENT_ID: ${AUTH_ROLE_CLIENT_ID:-payment-api}
+
+x-app-defaults: &app-defaults
+  restart: unless-stopped
+  networks: [payment-platform]
+  init: true
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    command:
+      - postgres
+      - -c
+      - wal_level=logical
+      - -c
+      - max_replication_slots=10
+      - -c
+      - max_wal_senders=10
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-payments}
+      POSTGRES_USER: ${POSTGRES_USER:-payment}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-payment}
+    ports:
+      - "${POSTGRES_HOST_PORT:-15432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 5s
+    networks: [payment-platform]
+
+  migrate:
+    image: migrate/migrate:v4.18.3
+    restart: "no"
+    entrypoint: ["/migrate"]
+    command:
+      - -path=/migrations
+      - -database=postgres://${POSTGRES_USER:-payment}:${POSTGRES_PASSWORD:-payment}@postgres:5432/${POSTGRES_DB:-payments}?sslmode=disable
+      - up
+    volumes:
+      - ./migrations:/migrations:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks: [payment-platform]
+
+  keycloak-postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: keycloak
+      POSTGRES_USER: keycloak
+      POSTGRES_PASSWORD: ${KEYCLOAK_DB_PASSWORD:-keycloak}
+    volumes:
+      - keycloak_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U keycloak -d keycloak"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks: [payment-platform]
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.7.3
+    restart: unless-stopped
+    command: ["start-dev", "--import-realm"]
+    environment:
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://keycloak-postgres:5432/keycloak
+      KC_DB_USERNAME: keycloak
+      KC_DB_PASSWORD: ${KEYCLOAK_DB_PASSWORD:-keycloak}
+      KC_BOOTSTRAP_ADMIN_USERNAME: ${KEYCLOAK_ADMIN_USER:-admin}
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-admin}
+      KC_HEALTH_ENABLED: "true"
+      KC_METRICS_ENABLED: "true"
+      KC_HOSTNAME: http://localhost:${KEYCLOAK_HOST_PORT:-18080}
+      KC_HOSTNAME_BACKCHANNEL_DYNAMIC: "true"
+    volumes:
+      - ./deployments/keycloak/payment-realm.json:/opt/keycloak/data/import/payments-realm.json:ro
+    ports:
+      - "${KEYCLOAK_HOST_PORT:-18080}:8080"
+      - "${KEYCLOAK_MANAGEMENT_HOST_PORT:-19090}:9000"
+    depends_on:
+      keycloak-postgres:
+        condition: service_healthy
+    networks: [payment-platform]
+
+  temporal-postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: temporal
+      POSTGRES_USER: temporal
+      POSTGRES_PASSWORD: ${TEMPORAL_DB_PASSWORD:-temporal}
+    volumes:
+      - temporal_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U temporal -d temporal"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks: [payment-platform]
+
+  temporal:
+    image: temporalio/auto-setup:1.29.4.1
+    restart: unless-stopped
+    environment:
+      DB: postgres12
+      DB_PORT: "5432"
+      POSTGRES_USER: temporal
+      POSTGRES_PWD: ${TEMPORAL_DB_PASSWORD:-temporal}
+      POSTGRES_SEEDS: temporal-postgres
+    ports:
+      - "${TEMPORAL_GRPC_HOST_PORT:-17233}:7233"
+    depends_on:
+      temporal-postgres:
+        condition: service_healthy
+    networks: [payment-platform]
+
+  temporal-ui:
+    image: temporalio/ui:2.54.1
+    restart: unless-stopped
+    environment:
+      TEMPORAL_ADDRESS: temporal:7233
+      TEMPORAL_CORS_ORIGINS: http://localhost:${TEMPORAL_UI_HOST_PORT:-18088}
+    ports:
+      - "${TEMPORAL_UI_HOST_PORT:-18088}:8080"
+    depends_on:
+      - temporal
+    networks: [payment-platform]
+
+  redis:
+    image: redis:7.4-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes", "--save", "60", "1"]
+    ports:
+      - "${REDIS_HOST_PORT:-16379}:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks: [payment-platform]
+
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:9.5.4
+    restart: unless-stopped
+    environment:
+      discovery.type: single-node
+      xpack.security.enabled: "false"
+      xpack.license.self_generated.type: basic
+      cluster.routing.allocation.disk.threshold_enabled: "false"
+      ES_JAVA_OPTS: ${ELASTICSEARCH_JAVA_OPTS:--Xms512m -Xmx512m}
+    ports:
+      - "${ELASTICSEARCH_HOST_PORT:-19200}:9200"
+    volumes:
+      - elasticsearch_data:/usr/share/elasticsearch/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:9200/_cluster/health?wait_for_status=yellow >/dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+    networks: [payment-platform]
+
+  clickhouse:
+    image: clickhouse/clickhouse-server:26.8.7.19-alpine
+    restart: unless-stopped
+    environment:
+      CLICKHOUSE_DB: payment_analytics
+      CLICKHOUSE_USER: ${CLICKHOUSE_USERNAME:-analytics}
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:-analytics}
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: "1"
+    ports:
+      - "${CLICKHOUSE_HTTP_HOST_PORT:-18123}:8123"
+      - "${CLICKHOUSE_NATIVE_HOST_PORT:-19000}:9000"
+    volumes:
+      - clickhouse_data:/var/lib/clickhouse
+      - ./deployments/clickhouse/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD", "clickhouse-client", "--user", "${CLICKHOUSE_USERNAME:-analytics}", "--password", "${CLICKHOUSE_PASSWORD:-analytics}", "--query", "SELECT 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 15s
+    networks: [payment-platform]
+
+  kafka:
+    image: apache/kafka:3.9.1
+    restart: unless-stopped
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:29092,CONTROLLER://0.0.0.0:29093,EXTERNAL://0.0.0.0:9092
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,EXTERNAL://localhost:${KAFKA_HOST_PORT:-19092}
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,EXTERNAL:PLAINTEXT
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:29093
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_NUM_PARTITIONS: 3
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+    ports:
+      - "${KAFKA_HOST_PORT:-19092}:9092"
+    volumes:
+      - kafka_data:/var/lib/kafka/data
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:29092 --list >/dev/null 2>&1"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 20s
+    networks: [payment-platform]
+
+  kafka-init:
+    image: apache/kafka:3.9.1
+    restart: "no"
+    depends_on:
+      kafka:
+        condition: service_healthy
+    entrypoint: ["/bin/sh", "-ec"]
+    command:
+      - |
+        topics="payment.created.v1 payment.processing.v1 payment.completed.v1 payment.failed.v1 payment.cancelled.v1 refund.requested.v1 refund.processing.v1 refund.completed.v1 refund.failed.v1 receipt.requested.v1 receipt.created.v1 notification.requested.v1 ledger.posted.v1"
+        for topic in $${topics}; do
+          /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:29092 --create --if-not-exists --topic "$${topic}" --partitions 3 --replication-factor 1
+          /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:29092 --create --if-not-exists --topic "$${topic}.dlq" --partitions 3 --replication-factor 1
+        done
+        /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:29092 --create --if-not-exists --topic __debezium-heartbeat.payment-platform --partitions 1 --replication-factor 1
+        /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:29092 --create --if-not-exists --topic connect-configs --partitions 1 --replication-factor 1 --config cleanup.policy=compact
+        /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:29092 --create --if-not-exists --topic connect-offsets --partitions 1 --replication-factor 1 --config cleanup.policy=compact
+        /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:29092 --create --if-not-exists --topic connect-status --partitions 1 --replication-factor 1 --config cleanup.policy=compact
+    networks: [payment-platform]
+
+  debezium:
+    image: quay.io/debezium/connect:3.6.2.Final
+    restart: unless-stopped
+    environment:
+      BOOTSTRAP_SERVERS: kafka:29092
+      GROUP_ID: payment-platform-debezium
+      CONFIG_STORAGE_TOPIC: connect-configs
+      OFFSET_STORAGE_TOPIC: connect-offsets
+      STATUS_STORAGE_TOPIC: connect-status
+      CONFIG_STORAGE_REPLICATION_FACTOR: "1"
+      OFFSET_STORAGE_REPLICATION_FACTOR: "1"
+      STATUS_STORAGE_REPLICATION_FACTOR: "1"
+      CONNECT_CONFIG_PROVIDERS: env
+      CONNECT_CONFIG_PROVIDERS_ENV_CLASS: org.apache.kafka.common.config.provider.EnvVarConfigProvider
+      POSTGRES_DB: ${POSTGRES_DB:-payments}
+      POSTGRES_USER: ${POSTGRES_USER:-payment}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-payment}
+    ports:
+      - "${DEBEZIUM_HOST_PORT:-18086}:8083"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      kafka-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8083/connectors >/dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 20s
+    networks: [payment-platform]
+
+  debezium-init:
+    image: curlimages/curl:8.16.0
+    restart: "no"
+    command:
+      - -fsS
+      - -X
+      - PUT
+      - -H
+      - "Content-Type:application/json"
+      - --data-binary
+      - "@/config/outbox-connector.json"
+      - http://debezium:8083/connectors/payment-platform-outbox/config
+    volumes:
+      - ./deployments/debezium/outbox-connector.json:/config/outbox-connector.json:ro
+    depends_on:
+      debezium:
+        condition: service_healthy
+    networks: [payment-platform]
+
+  localstack:
+    image: localstack/localstack:3.8.1
+    restart: unless-stopped
+    environment:
+      SERVICES: s3,sqs,sns
+      AWS_DEFAULT_REGION: ${AWS_REGION:-us-east-1}
+      AWS_ACCOUNT_ID: "000000000000"
+      S3_BUCKET: ${S3_BUCKET:-payment-receipts}
+      SQS_QUEUE_NAME: ${SQS_QUEUE_NAME:-payment-notifications}
+      SQS_DLQ_NAME: ${SQS_DLQ_NAME:-payment-dlq}
+      SNS_TOPIC_NAME: ${SNS_TOPIC_NAME:-payment-notifications}
+      DEBUG: ${LOCALSTACK_DEBUG:-0}
+    ports:
+      - "${LOCALSTACK_HOST_PORT:-4566}:4566"
+    volumes:
+      - localstack_data:/var/lib/localstack
+      - ./deployments/localstack/init-aws.sh:/etc/localstack/init/ready.d/init-aws.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "awslocal s3api head-bucket --bucket \"$${S3_BUCKET:-payment-receipts}\" >/dev/null 2>&1 && awslocal sqs get-queue-url --queue-name \"$${SQS_QUEUE_NAME:-payment-notifications}\" >/dev/null 2>&1"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 15s
+    networks: [payment-platform]
+
+  payment-api:
+    <<: *app-defaults
+    build:
+      context: .
+      args:
+        SERVICE: payment-api
+    environment:
+      <<: *app-environment
+      HTTP_PORT: "8080"
+      CORS_ALLOWED_ORIGIN: ${CORS_ALLOWED_ORIGIN:-http://localhost:5173}
+    ports:
+      - "${PAYMENT_API_HOST_PORT:-8080}:8080"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+      kafka-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+
+  outbox-relay:
+    <<: *app-defaults
+    profiles: [legacy-relay]
+    build:
+      context: .
+      args:
+        SERVICE: outbox-relay
+    environment:
+      <<: *app-environment
+      HTTP_PORT: "8082"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      kafka-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8082/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+
+  risk-service:
+    <<: *app-defaults
+    build:
+      context: .
+      args:
+        SERVICE: risk-service
+    environment:
+      <<: *app-environment
+      GRPC_PORT: "9090"
+      HTTP_PORT: "8086"
+    ports:
+      - "${RISK_GRPC_HOST_PORT:-19091}:9090"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8086/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+
+  payment-worker:
+    <<: *app-defaults
+    build:
+      context: .
+      args:
+        SERVICE: payment-worker
+    environment:
+      <<: *app-environment
+      HTTP_PORT: "8081"
+      FAKE_PROVIDER_MODE: ${FAKE_PROVIDER_MODE:-success}
+      FAKE_PROVIDER_PAYMENT_MODES: ${FAKE_PROVIDER_PAYMENT_MODES:-}
+      FAKE_PROVIDER_SLOW_DELAY: ${FAKE_PROVIDER_SLOW_DELAY:-3s}
+    ports:
+      - "${PAYMENT_WORKER_HOST_PORT:-18081}:8081"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      kafka-init:
+        condition: service_completed_successfully
+      risk-service:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8081/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+
+  ledger-service:
+    <<: *app-defaults
+    build:
+      context: .
+      args:
+        SERVICE: ledger-service
+    environment:
+      <<: *app-environment
+      HTTP_PORT: "8085"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      kafka-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8085/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+
+  receipt-service:
+    <<: *app-defaults
+    build:
+      context: .
+      args:
+        SERVICE: receipt-service
+    environment:
+      <<: *app-environment
+      HTTP_PORT: "8083"
+    ports:
+      - "${RECEIPT_HOST_PORT:-18083}:8083"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      kafka-init:
+        condition: service_completed_successfully
+      localstack:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8083/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+
+  notification-service:
+    <<: *app-defaults
+    build:
+      context: .
+      args:
+        SERVICE: notification-service
+    environment:
+      <<: *app-environment
+      HTTP_PORT: "8084"
+    ports:
+      - "${NOTIFICATION_HOST_PORT:-18084}:8084"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      kafka-init:
+        condition: service_completed_successfully
+      localstack:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8084/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+
+  workflow-service:
+    <<: *app-defaults
+    build:
+      context: .
+      args:
+        SERVICE: workflow-service
+    environment:
+      <<: *app-environment
+      HTTP_PORT: "8087"
+      TEMPORAL_ADDRESS: temporal:7233
+      TEMPORAL_NAMESPACE: default
+      WORKFLOW_DISPATCH_INTERVAL: ${WORKFLOW_DISPATCH_INTERVAL:-5s}
+      REFUND_PROVIDER_MODE: ${REFUND_PROVIDER_MODE:-success}
+      REFUND_PROVIDER_DELAY: ${REFUND_PROVIDER_DELAY:-3s}
+    ports:
+      - "${WORKFLOW_SERVICE_HOST_PORT:-18087}:8087"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      debezium-init:
+        condition: service_completed_successfully
+      temporal:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8087/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 20
+      start_period: 20s
+
+  payment-search-indexer:
+    <<: *app-defaults
+    build:
+      context: .
+      args:
+        SERVICE: payment-search-indexer
+    environment:
+      <<: *app-environment
+      HTTP_PORT: "8088"
+      ELASTICSEARCH_URL: http://elasticsearch:9200
+      ELASTICSEARCH_INDEX: payments-read-v1
+      ELASTICSEARCH_ALIAS: payments-read
+      SEARCH_WORKER_COUNT: ${SEARCH_WORKER_COUNT:-2}
+    depends_on:
+      kafka-init:
+        condition: service_completed_successfully
+      debezium-init:
+        condition: service_completed_successfully
+      elasticsearch:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8088/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 20
+      start_period: 20s
+
+  payment-search-service:
+    <<: *app-defaults
+    build:
+      context: .
+      args:
+        SERVICE: payment-search-service
+    environment:
+      <<: *app-environment
+      HTTP_PORT: "8089"
+      ELASTICSEARCH_URL: http://elasticsearch:9200
+      ELASTICSEARCH_INDEX: payments-read-v1
+      ELASTICSEARCH_ALIAS: payments-read
+    ports:
+      - "${SEARCH_SERVICE_HOST_PORT:-18089}:8089"
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8089/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 20
+      start_period: 20s
+
+  analytics-ingestor:
+    <<: *app-defaults
+    build:
+      context: .
+      args:
+        SERVICE: analytics-ingestor
+    environment:
+      <<: *app-environment
+      HTTP_PORT: "8090"
+      CLICKHOUSE_URL: http://clickhouse:8123
+      CLICKHOUSE_DATABASE: payment_analytics
+      CLICKHOUSE_PAYMENT_EVENTS_TABLE: payment_events
+      CLICKHOUSE_USERNAME: ${CLICKHOUSE_USERNAME:-analytics}
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:-analytics}
+      ANALYTICS_WORKER_COUNT: ${ANALYTICS_WORKER_COUNT:-2}
+    depends_on:
+      kafka-init:
+        condition: service_completed_successfully
+      debezium-init:
+        condition: service_completed_successfully
+      clickhouse:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8090/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 20
+      start_period: 20s
+
+  tempo:
+    image: grafana/tempo:2.10.1
+    restart: unless-stopped
+    command: ["-config.file=/etc/tempo/tempo.yml"]
+    volumes:
+      - ./deployments/tempo/tempo.yml:/etc/tempo/tempo.yml:ro
+      - tempo_data:/var/tempo
+    ports:
+      - "${TEMPO_HOST_PORT:-13200}:3200"
+    networks: [payment-platform]
+
+  loki:
+    image: grafana/loki:3.6.17
+    restart: unless-stopped
+    # The official image runs as an unprivileged UID, while a newly-created
+    # Docker named volume is owned by root. This is local-development-only and
+    # lets Loki initialise its filesystem stores on first start.
+    user: "0:0"
+    command: ["-config.file=/etc/loki/loki-config.yml"]
+    volumes:
+      - ./deployments/loki/loki-config.yml:/etc/loki/loki-config.yml:ro
+      - loki_data:/var/loki
+    ports:
+      - "${LOKI_HOST_PORT:-13100}:3100"
+    networks: [payment-platform]
+
+  alloy:
+    image: grafana/alloy:v1.19.2
+    restart: unless-stopped
+    command:
+      - run
+      - --server.http.listen-addr=0.0.0.0:12345
+      - --storage.path=/var/lib/alloy/data
+      - /etc/alloy/config.alloy
+    volumes:
+      - ./deployments/alloy/config.alloy:/etc/alloy/config.alloy:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - alloy_data:/var/lib/alloy/data
+    ports:
+      - "${ALLOY_HOST_PORT:-12345}:12345"
+    depends_on:
+      - loki
+    networks: [payment-platform]
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.111.0
+    restart: unless-stopped
+    command: ["--config=/etc/otelcol-contrib/config.yml"]
+    volumes:
+      - ./deployments/otel/otel-collector.yml:/etc/otelcol-contrib/config.yml:ro
+    ports:
+      - "${OTEL_GRPC_HOST_PORT:-14317}:4317"
+      - "${OTEL_HTTP_HOST_PORT:-14318}:4318"
+    healthcheck:
+      test: ["CMD", "/otelcol-contrib", "components"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    depends_on:
+      - tempo
+      - loki
+    networks: [payment-platform]
+
+  prometheus:
+    image: prom/prometheus:v3.5.0
+    restart: unless-stopped
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=7d
+      - --web.enable-lifecycle
+    volumes:
+      - ./deployments/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    ports:
+      - "${PROMETHEUS_HOST_PORT:-9090}:9090"
+    depends_on:
+      - payment-api
+    networks: [payment-platform]
+
+  grafana:
+    image: grafana/grafana:11.2.2
+    restart: unless-stopped
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - ./deployments/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./deployments/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana_data:/var/lib/grafana
+    ports:
+      - "${GRAFANA_HOST_PORT:-3000}:3000"
+    depends_on:
+      - prometheus
+      - loki
+      - tempo
+    networks: [payment-platform]
+
+  test-runner:
+    image: golang:1.27-bookworm
+    profiles: [tools]
+    working_dir: /workspace
+    environment: *app-environment
+    volumes:
+      - .:/workspace
+      - go_modules:/go/pkg/mod
+      - go_build_cache:/root/.cache/go-build
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    networks: [payment-platform]
+    entrypoint: ["go"]
+    command: ["test", "./..."]
+
+networks:
+  payment-platform:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  keycloak_postgres_data:
+  temporal_postgres_data:
+  redis_data:
+  kafka_data:
+  elasticsearch_data:
+  clickhouse_data:
+  localstack_data:
+  prometheus_data:
+  grafana_data:
+  tempo_data:
+  loki_data:
+  alloy_data:
+  go_modules:
+  go_build_cache:

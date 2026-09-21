@@ -1,0 +1,316 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: otel-collector
+  labels:
+    app.kubernetes.io/name: otel-collector
+spec:
+  selector:
+    app.kubernetes.io/name: otel-collector
+  ports:
+    - {name: otlp-grpc, port: 4317}
+    - {name: otlp-http, port: 4318}
+    - {name: telemetry, port: 8888}
+    - {name: prometheus-exporter, port: 8889}
+    - {name: health, port: 13133}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: otel-collector
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: otel-collector
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: otel-collector
+        app.kubernetes.io/component: telemetry-gateway
+    spec:
+      containers:
+        - name: otel-collector
+          image: otel/opentelemetry-collector-contrib:0.111.0
+          env:
+            - {name: APP_ENV, value: local-kubernetes}
+          args: ["--config=/etc/otelcol-contrib/config.yml"]
+          ports:
+            - {name: otlp-grpc, containerPort: 4317}
+            - {name: otlp-http, containerPort: 4318}
+            - {name: telemetry, containerPort: 8888}
+            - {name: prom-export, containerPort: 8889}
+            - {name: health, containerPort: 13133}
+          readinessProbe:
+            httpGet: {path: /, port: health}
+            periodSeconds: 5
+          livenessProbe:
+            httpGet: {path: /, port: health}
+            periodSeconds: 15
+          resources:
+            requests: {cpu: 50m, memory: 128Mi}
+            limits: {cpu: 500m, memory: 512Mi}
+          volumeMounts:
+            - {name: config, mountPath: /etc/otelcol-contrib/config.yml, subPath: otel-collector.yml, readOnly: true}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: ["ALL"]}
+      volumes:
+        - name: config
+          configMap:
+            name: otel-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: loki
+  labels:
+    app.kubernetes.io/name: loki
+spec:
+  selector:
+    app.kubernetes.io/name: loki
+  ports:
+    - {name: http, port: 3100}
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: loki
+spec:
+  serviceName: loki
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: loki
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: loki
+        app.kubernetes.io/component: logs
+    spec:
+      securityContext:
+        fsGroup: 10001
+      containers:
+        - name: loki
+          image: grafana/loki:3.6.17
+          args: ["-config.file=/etc/loki/loki-config.yml"]
+          ports:
+            - {name: http, containerPort: 3100}
+          readinessProbe:
+            httpGet: {path: /ready, port: http}
+            periodSeconds: 5
+          livenessProbe:
+            httpGet: {path: /ready, port: http}
+            periodSeconds: 15
+          resources:
+            requests: {cpu: 100m, memory: 256Mi}
+            limits: {cpu: "1", memory: 1Gi}
+          volumeMounts:
+            - {name: config, mountPath: /etc/loki/loki-config.yml, subPath: loki-config.yml, readOnly: true}
+            - {name: data, mountPath: /var/loki}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: {drop: ["ALL"]}
+      volumes:
+        - name: config
+          configMap:
+            name: loki-config
+  volumeClaimTemplates:
+    - metadata: {name: data}
+      spec:
+        accessModes: [ReadWriteOnce]
+        resources: {requests: {storage: 2Gi}}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: tempo
+  labels:
+    app.kubernetes.io/name: tempo
+spec:
+  selector:
+    app.kubernetes.io/name: tempo
+  ports:
+    - {name: http, port: 3200}
+    - {name: otlp-grpc, port: 4317}
+    - {name: otlp-http, port: 4318}
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: tempo
+spec:
+  serviceName: tempo
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: tempo
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: tempo
+        app.kubernetes.io/component: traces
+    spec:
+      securityContext:
+        fsGroup: 10001
+      containers:
+        - name: tempo
+          image: grafana/tempo:2.10.1
+          args: ["-config.file=/etc/tempo/tempo.yml"]
+          ports:
+            - {name: http, containerPort: 3200}
+            - {name: otlp-grpc, containerPort: 4317}
+            - {name: otlp-http, containerPort: 4318}
+          readinessProbe:
+            httpGet: {path: /ready, port: http}
+            periodSeconds: 5
+          livenessProbe:
+            httpGet: {path: /ready, port: http}
+            periodSeconds: 15
+          resources:
+            requests: {cpu: 100m, memory: 256Mi}
+            limits: {cpu: "1", memory: 1Gi}
+          volumeMounts:
+            - {name: config, mountPath: /etc/tempo/tempo.yml, subPath: tempo.yml, readOnly: true}
+            - {name: data, mountPath: /var/tempo}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: {drop: ["ALL"]}
+      volumes:
+        - name: config
+          configMap:
+            name: tempo-config
+  volumeClaimTemplates:
+    - metadata: {name: data}
+      spec:
+        accessModes: [ReadWriteOnce]
+        resources: {requests: {storage: 2Gi}}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: prometheus
+  labels:
+    app.kubernetes.io/name: prometheus
+spec:
+  selector:
+    app.kubernetes.io/name: prometheus
+  ports:
+    - {name: http, port: 9090}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: prometheus
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: prometheus
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: prometheus
+        app.kubernetes.io/component: metrics
+    spec:
+      containers:
+        - name: prometheus
+          image: prom/prometheus:v3.5.0
+          args:
+            - --config.file=/etc/prometheus/prometheus.yml
+            - --storage.tsdb.path=/prometheus
+            - --storage.tsdb.retention.time=7d
+            - --web.enable-lifecycle
+            - --web.enable-remote-write-receiver
+          ports:
+            - {name: http, containerPort: 9090}
+          readinessProbe:
+            httpGet: {path: /-/ready, port: http}
+            periodSeconds: 5
+          livenessProbe:
+            httpGet: {path: /-/healthy, port: http}
+            periodSeconds: 15
+          resources:
+            requests: {cpu: 100m, memory: 256Mi}
+            limits: {cpu: "1", memory: 1Gi}
+          volumeMounts:
+            - {name: config, mountPath: /etc/prometheus/prometheus.yml, subPath: prometheus.yml, readOnly: true}
+            - {name: data, mountPath: /prometheus}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: {drop: ["ALL"]}
+      volumes:
+        - name: config
+          configMap: {name: prometheus-config}
+        - name: data
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: grafana
+  labels:
+    app.kubernetes.io/name: grafana
+spec:
+  selector:
+    app.kubernetes.io/name: grafana
+  ports:
+    - {name: http, port: 3000}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: grafana
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: grafana
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: grafana
+        app.kubernetes.io/component: visualization
+    spec:
+      securityContext:
+        fsGroup: 472
+      containers:
+        - name: grafana
+          image: grafana/grafana:11.2.2
+          env:
+            - name: GF_SECURITY_ADMIN_USER
+              valueFrom:
+                secretKeyRef:
+                  name: payment-platform-infrastructure-secrets
+                  key: GRAFANA_ADMIN_USER
+            - name: GF_SECURITY_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: payment-platform-infrastructure-secrets
+                  key: GRAFANA_ADMIN_PASSWORD
+            - {name: GF_USERS_ALLOW_SIGN_UP, value: "false"}
+          ports:
+            - {name: http, containerPort: 3000}
+          readinessProbe:
+            httpGet: {path: /api/health, port: http}
+            periodSeconds: 5
+          livenessProbe:
+            httpGet: {path: /api/health, port: http}
+            periodSeconds: 15
+          resources:
+            requests: {cpu: 50m, memory: 128Mi}
+            limits: {cpu: 500m, memory: 512Mi}
+          volumeMounts:
+            - {name: provisioning, mountPath: /etc/grafana/provisioning/datasources/datasources.yml, subPath: datasources.yml, readOnly: true}
+            - {name: provisioning, mountPath: /etc/grafana/provisioning/dashboards/payment-platform.yml, subPath: dashboards.yml, readOnly: true}
+            - {name: provisioning, mountPath: /var/lib/grafana/dashboards/observability-overview.json, subPath: observability-overview.json, readOnly: true}
+            - {name: data, mountPath: /var/lib/grafana}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: {drop: ["ALL"]}
+      volumes:
+        - name: provisioning
+          configMap: {name: grafana-provisioning}
+        - name: data
+          emptyDir: {}

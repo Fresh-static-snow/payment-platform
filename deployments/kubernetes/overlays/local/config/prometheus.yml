@@ -1,0 +1,40 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: prometheus
+    static_configs:
+      - targets: ["prometheus:9090"]
+
+  - job_name: payment-platform-http
+    metrics_path: /metrics
+    static_configs:
+      - targets:
+          - payment-api:8080
+          - payment-worker:8081
+          - risk-service:8086
+          - ledger-service:8085
+          - receipt-service:8083
+          - notification-service:8084
+          - workflow-service:8087
+          - payment-search-indexer:8088
+          - payment-search-service:8089
+          - analytics-ingestor:8090
+
+  - job_name: otel-collector
+    static_configs:
+      - targets: ["otel-collector:8888", "otel-collector:8889"]
+
+  - job_name: loki
+    static_configs:
+      - targets: ["loki:3100"]
+
+  - job_name: tempo
+    static_configs:
+      - targets: ["tempo:3200"]
+
+  - job_name: keycloak
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["keycloak:9000"]

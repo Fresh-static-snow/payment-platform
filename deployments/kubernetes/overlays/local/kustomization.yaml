@@ -1,0 +1,68 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: payment-platform
+resources:
+  - ../../base
+  - dependencies.yaml
+  - kafka-init.yaml
+  - localstack-init.yaml
+  - search-analytics-dependencies.yaml
+  - identity-workflow-dependencies.yaml
+  - cdc.yaml
+  - observability.yaml
+  - otel-log-agent.yaml
+  - local-ingress.yaml
+patches:
+  - path: namespace-patch.yaml
+  - path: app-config-patch.yaml
+  - path: app-secret-patch.yaml
+  - path: infrastructure-secret-patch.yaml
+  - path: local-hpa-patch.yaml
+replicas:
+  - {name: payment-api, count: 1}
+  - {name: payment-worker, count: 1}
+  - {name: risk-service, count: 1}
+  - {name: ledger-service, count: 1}
+  - {name: receipt-service, count: 1}
+  - {name: notification-service, count: 1}
+  - {name: payment-search-indexer, count: 1}
+  - {name: payment-search-service, count: 1}
+  - {name: analytics-ingestor, count: 1}
+  - {name: workflow-service, count: 1}
+configMapGenerator:
+  - name: otel-config
+    files:
+      - otel-collector.yml=config/otel-collector.yml
+  - name: otel-log-agent-config
+    files:
+      - otel-log-agent.yml=config/otel-log-agent.yml
+  - name: loki-config
+    files:
+      - loki-config.yml=config/loki-config.yml
+  - name: tempo-config
+    files:
+      - tempo.yml=config/tempo.yml
+  - name: prometheus-config
+    files:
+      - prometheus.yml=config/prometheus.yml
+  - name: grafana-provisioning
+    files:
+      - datasources.yml=config/grafana-datasources.yml
+      - dashboards.yml=config/grafana-dashboard-provider.yml
+      - observability-overview.json=config/observability-overview.json
+  - name: keycloak-realm
+    files:
+      - payment-realm.json=config/payment-realm.json
+  - name: clickhouse-init
+    files:
+      - 001_payment_analytics.sql=config/001_payment_analytics.sql
+  - name: debezium-connector
+    files:
+      - debezium-connector.json=config/debezium-connector.json
+      - debezium-connector-config.json=config/debezium-connector-config.json
+generatorOptions:
+  disableNameSuffixHash: true
+labels:
+  - pairs:
+      app.kubernetes.io/environment: local
+    includeSelectors: false

@@ -1,0 +1,58 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: database-migrate
+  annotations:
+    argocd.argoproj.io/hook: PreSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation,HookSucceeded
+spec:
+  backoffLimit: 12
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: database-migrate
+        app.kubernetes.io/component: migration
+    spec:
+      restartPolicy: OnFailure
+      serviceAccountName: payment-platform
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      initContainers:
+        - name: wait-for-postgres
+          image: postgres:17-alpine
+          command: ["/bin/sh", "-ec"]
+          args:
+            - until pg_isready -d "$DATABASE_URL"; do sleep 2; done
+          envFrom:
+            - secretRef:
+                name: payment-platform-secrets
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+      containers:
+        - name: migrate
+          image: payment-platform/migrations:local
+          args: ["-path=/migrations", "-database=$(DATABASE_URL)", "up"]
+          envFrom:
+            - secretRef:
+                name: payment-platform-secrets
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]

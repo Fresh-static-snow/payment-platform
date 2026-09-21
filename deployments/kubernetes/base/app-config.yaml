@@ -1,0 +1,43 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: payment-platform-config
+data:
+  APP_ENV: kubernetes
+  REDIS_ADDR: redis:6379
+  REDIS_TLS_ENABLED: "false"
+  KAFKA_BROKERS: kafka:9092
+  KAFKA_TLS_ENABLED: "false"
+  RISK_GRPC_ADDR: risk-service:9090
+  AWS_ENDPOINT: http://localstack:4566
+  AWS_REGION: us-east-1
+  S3_BUCKET: payment-receipts
+  SNS_TOPIC_ARN: arn:aws:sns:us-east-1:000000000000:payment-notifications
+  SQS_QUEUE_URL: http://localstack:4566/000000000000/payment-notifications
+  WORKER_COUNT: "4"
+  PROVIDER_TIMEOUT: 2s
+  SHUTDOWN_TIMEOUT: 20s
+  OTEL_EXPORTER_OTLP_ENDPOINT: otel-collector:4317
+  CORS_ALLOWED_ORIGIN: http://localhost:5173
+  FAKE_PROVIDER_MODE: success
+  FAKE_PROVIDER_SLOW_DELAY: 3s
+  AUTH_DISABLED: "false"
+  AUTH_ISSUER_URL: http://keycloak:8080/realms/payments
+  AUTH_AUDIENCE: payment-api
+  AUTH_JWKS_URL: http://keycloak:8080/realms/payments/protocol/openid-connect/certs
+  AUTH_REQUIRED_ROLE: payment-user
+  AUTH_ROLE_CLIENT_ID: payment-api
+  ELASTICSEARCH_URL: http://elasticsearch:9200
+  ELASTICSEARCH_INDEX: payments-read-v1
+  ELASTICSEARCH_ALIAS: payments-read
+  SEARCH_WORKER_COUNT: "2"
+  CLICKHOUSE_URL: http://clickhouse:8123
+  CLICKHOUSE_DATABASE: payment_analytics
+  CLICKHOUSE_PAYMENT_EVENTS_TABLE: payment_events
+  CLICKHOUSE_USERNAME: analytics
+  ANALYTICS_WORKER_COUNT: "2"
+  TEMPORAL_ADDRESS: temporal:7233
+  TEMPORAL_NAMESPACE: default
+  WORKFLOW_DISPATCH_INTERVAL: 5s
+  REFUND_PROVIDER_MODE: success
+  REFUND_PROVIDER_DELAY: 3s

@@ -1,0 +1,19 @@
+.env
+.DS_Store
+bin/
+coverage.out
+*.test
+tmp/
+
+# Terraform local state, caches, plans, and real environment inputs.
+**/.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+*.plan
+*.tfvars
+!*.tfvars.example
+backend.hcl
+
+# Rendered AWS manifests contain environment-specific endpoints and ARNs.
+deployments/kubernetes/overlays/aws/generated/

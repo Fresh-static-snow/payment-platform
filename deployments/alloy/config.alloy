@@ -1,0 +1,81 @@
+discovery.docker "local" {
+  host = "unix:///var/run/docker.sock"
+}
+
+discovery.relabel "docker_logs" {
+  targets = []
+
+  rule {
+    source_labels = ["__meta_docker_container_label_com_docker_compose_project"]
+    regex         = "payment-platform"
+    action        = "keep"
+  }
+
+  // Compose reuses completed one-shot containers. Reattaching Docker's log
+  // stream would replay their entire historical log and Loki correctly rejects
+  // those stale timestamps. Application and long-running infrastructure logs
+  // remain collected; init/test jobs are deliberately excluded.
+  rule {
+    source_labels = ["__meta_docker_container_label_com_docker_compose_service"]
+    regex         = "(migrate|kafka-init|debezium-init|test-runner)"
+    action        = "drop"
+  }
+
+  rule {
+    source_labels = ["__meta_docker_container_label_com_docker_compose_service"]
+    target_label  = "service_name"
+  }
+
+  rule {
+    source_labels = ["__meta_docker_container_name"]
+    regex         = "/(.*)"
+    target_label  = "container"
+  }
+
+  rule {
+    target_label = "environment"
+    replacement  = "local"
+  }
+}
+
+loki.source.docker "local" {
+  host          = "unix:///var/run/docker.sock"
+  targets       = discovery.docker.local.targets
+  labels        = { platform = "payment-platform" }
+  relabel_rules = discovery.relabel.docker_logs.rules
+  forward_to    = [loki.process.application.receiver]
+}
+
+loki.process "application" {
+  // Docker may replay retained log frames after Alloy is recreated. Keep that
+  // local history from becoming a permanent retry loop against Loki's 7-day
+  // ingestion window while continuing to ship current container logs.
+  stage.drop {
+    older_than          = "168h"
+    drop_counter_reason = "outside_loki_retention"
+  }
+
+  stage.json {
+    expressions = {
+      level      = "level",
+      service    = "service",
+      request_id = "request_id",
+      trace_id   = "trace_id",
+    }
+  }
+
+  stage.labels {
+    values = {
+      level   = "",
+      service = "",
+    }
+  }
+
+  forward_to = [loki.write.payment_platform.receiver]
+}
+
+loki.write "payment_platform" {
+  endpoint {
+    url = "http://loki:3100/loki/api/v1/push"
+  }
+}

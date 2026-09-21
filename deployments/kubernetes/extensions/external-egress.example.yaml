@@ -1,0 +1,27 @@
+# Add this resource from an environment overlay when PostgreSQL, Kafka, Redis,
+# OTLP, or AWS-compatible services live outside the namespace. Narrow the
+# ipBlock and ports to the actual managed-service endpoints before applying it.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-managed-services
+  namespace: payment-platform
+spec:
+  podSelector: {}
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - ipBlock:
+            cidr: 10.0.0.0/8
+      ports:
+        - {protocol: TCP, port: 5432}
+        - {protocol: TCP, port: 6379}
+        - {protocol: TCP, port: 9092}
+        - {protocol: TCP, port: 4317}
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 169.254.169.254/32
+      ports:
+        - {protocol: TCP, port: 443}
