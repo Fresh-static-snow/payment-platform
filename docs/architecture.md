@@ -67,7 +67,7 @@ Payment repositories читают и меняют данные в контекс
 | `analytics-ingestor` | payment lifecycle topics | ClickHouse rows | `payment_analytics.payment_events` |
 | `outbox-relay` | PostgreSQL polling | Kafka topics | `outbox_events.published_at`; legacy profile only |
 
-Application services локально делят одну PostgreSQL database. Табличное ownership поддерживается кодом и repository boundaries, а не отдельными credentials/schemas. Это снижает стоимость учебного запуска, но не даёт полноценной blast-radius isolation.
+Application services локально делят одну PostgreSQL database. Табличное ownership поддерживается кодом и repository boundaries, а не отдельными credentials/schemas. Это снижает стоимость локальной разработки, но не даёт полноценной blast-radius isolation.
 
 ## 4. Контекстная диаграмма
 
@@ -197,7 +197,7 @@ Debezium не меняет `outbox_events.published_at`; это поле при�
 
 `outbox-relay` доступен только в Compose profile `legacy-relay`. Он выбирает строки через `FOR UPDATE SKIP LOCKED`, публикует synchronously и затем ставит `published_at`. Падение после Kafka ack, но до PostgreSQL update создаёт duplicate.
 
-Debezium и relay нельзя запускать одновременно: оба публикуют одну и ту же логическую строку независимо. Legacy реализация сохранена как учебное сравнение и recovery tool, а не как active-active publisher.
+Debezium и relay нельзя запускать одновременно: оба публикуют одну и ту же логическую строку независимо. Legacy реализация сохранена как reference implementation и recovery tool, а не как active-active publisher.
 
 ## 6. Payment flow
 
@@ -304,7 +304,7 @@ Receipt создаётся только после явной команды д�
 
 ### 7.4 Notification
 
-Payment completion атомарно превращается в durable `notification_delivery`. Отдельный polling publisher выбирает pending rows, отправляет payload в SNS; подписанная SQS queue возвращает его notification service. `notification_sends` дедуплицирует фактический учебный send, SQS имеет redrive policy.
+Payment completion атомарно превращается в durable `notification_delivery`. Отдельный polling publisher выбирает pending rows, отправляет payload в SNS; подписанная SQS queue возвращает его notification service. `notification_sends` дедуплицирует фактические отправки, SQS имеет redrive policy.
 
 Реального email/SMS provider нет. Lock во время SNS call и простой attempt policy подходят стенду, но production implementation потребует lease, `next_attempt_at`, jitter и явной terminal policy.
 
@@ -440,7 +440,7 @@ Compose хранит Loki/Tempo/Prometheus/Grafana state в local named volumes.
 
 Base не разворачивает databases/brokers и предназначен для подключения platform dependencies через configuration/secrets.
 
-`overlays/local` добавляет PostgreSQL, Redis, Kafka, LocalStack, Debezium, Keycloak, Temporal, Elasticsearch, ClickHouse и observability stack. Реплики/HPA уменьшены для developer cluster. Local dependencies используют учебные credentials и local storage semantics.
+`overlays/local` добавляет PostgreSQL, Redis, Kafka, LocalStack, Debezium, Keycloak, Temporal, Elasticsearch, ClickHouse и observability stack. Реплики/HPA уменьшены для developer cluster. Local dependencies используют development credentials и local storage semantics.
 
 `overlays/aws` является шаблоном production application plane. Renderer связывает Terraform outputs с immutable ECR images, managed endpoints, ALB/ACM, External Secrets и workload-specific IRSA roles. Base Secret с dev credentials удаляется и заменяется четырьмя секретами с минимальной областью раскрытия; Reloader перезапускает только их потребителей после ротации. Argo CD sync waves создают namespace и секреты до blocking Sync hooks миграции и инициализации Kafka. Debezium публикует outbox через MSK TLS. VPC CNI network policy включается Terraform; внутренние managed-service порты ограничены CIDR VPC, IMDS заблокирован, а внешние provider CIDR следует дополнительно сузить, когда они стабильны.
 

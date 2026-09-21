@@ -17,12 +17,12 @@
   <a href="docs/architecture.md">Design notes</a>
 </p>
 
-> [!IMPORTANT]
-> This is an educational system-design project, not a real-money processor. It does not claim PCI DSS compliance, organisational security controls, tested restore drills or multi-region operations.
+> [!NOTE]
+> The default configuration targets local development. A production deployment requires PCI DSS controls, organisational security practices, tested restore drills and a multi-region operating strategy.
 
 ## О проекте
 
-**Payment Platform** — учебная, но production-like платёжная платформа на Go. Это не CRUD-демо: репозиторий показывает, как связать транзакционную запись, CDC, at-least-once delivery, идемпотентность, optimistic locking, gRPC, durable workflows, поисковую и аналитическую проекции, Kubernetes, Terraform/AWS и полный локальный observability-стек.
+**Payment Platform** — production-like платёжная платформа на Go. Это не CRUD-демо: репозиторий показывает, как связать транзакционную запись, CDC, at-least-once delivery, идемпотентность, optimistic locking, gRPC, durable workflows, поисковую и аналитическую проекции, Kubernetes, Terraform/AWS и полный локальный observability-стек.
 
 | Что можно изучить | Как это реализовано |
 | --- | --- |
