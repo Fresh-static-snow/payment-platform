@@ -54,7 +54,7 @@ func (s *Service) HandlePaymentCompleted(ctx context.Context, message kafka.Mess
 		return fmt.Errorf("decode payment payload: %w", err)
 	}
 	delivery := deliveryPayload{
-		DeliveryID: uuid.New(), PaymentID: payment.PaymentID, UserID: payment.UserID,
+		PaymentID: payment.PaymentID, UserID: payment.UserID,
 		Kind: "payment_completed", RequestID: envelope.CorrelationID,
 	}
 	payload, err := json.Marshal(delivery)
@@ -74,9 +74,12 @@ func (s *Service) HandlePaymentCompleted(ctx context.Context, message kafka.Mess
 		return tx.Commit(ctx)
 	}
 	_, err = tx.Exec(ctx, `
+		WITH new_uuid AS MATERIALIZED (SELECT uuidv7() AS id)
 		INSERT INTO notification_deliveries(id,event_id,payment_id,user_id,payload,status)
-		VALUES($1,$2,$3,$4,$5,'pending')`,
-		delivery.DeliveryID, envelope.ID, payment.PaymentID, payment.UserID, string(payload),
+		SELECT new_uuid.id,$1,$2,$3,
+			jsonb_set($4::jsonb, '{delivery_id}', to_jsonb(new_uuid.id::text), true),'pending'
+		FROM new_uuid`,
+		envelope.ID, payment.PaymentID, payment.UserID, string(payload),
 	)
 	if err != nil {
 		return fmt.Errorf("insert notification delivery: %w", err)

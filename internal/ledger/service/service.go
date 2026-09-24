@@ -77,7 +77,6 @@ func (p *Processor) processPayment(ctx context.Context, event events.Envelope) e
 			"payment ledger event processed",
 			"event_id", event.ID,
 			"payment_id", payload.PaymentID,
-			"journal_id", journal.ID,
 			"created", created,
 		)
 	}
@@ -105,7 +104,7 @@ func (p *Processor) processRefund(ctx context.Context, event events.Envelope) er
 	if p.logger != nil {
 		p.logger.InfoContext(ctx, "refund ledger event processed",
 			"event_id", event.ID, "refund_id", payload.RefundID,
-			"payment_id", payload.PaymentID, "journal_id", journal.ID, "created", created,
+			"payment_id", payload.PaymentID, "created", created,
 		)
 	}
 	return nil

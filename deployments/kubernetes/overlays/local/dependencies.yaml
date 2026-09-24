@@ -30,7 +30,7 @@ spec:
     spec:
       containers:
         - name: postgres
-          image: postgres:17-alpine
+          image: postgres:18.6-alpine
           args:
             - -c
             - wal_level=logical
@@ -46,7 +46,7 @@ spec:
             - name: POSTGRES_PASSWORD
               valueFrom: {secretKeyRef: {name: payment-platform-infrastructure-secrets, key: POSTGRES_PASSWORD}}
             - name: PGDATA
-              value: /var/lib/postgresql/data/pgdata
+              value: /var/lib/postgresql/pgdata
           ports:
             - {name: postgres, containerPort: 5432}
           startupProbe:
@@ -68,7 +68,7 @@ spec:
             requests: {cpu: 100m, memory: 256Mi}
             limits: {cpu: "1", memory: 1Gi}
           volumeMounts:
-            - {name: data, mountPath: /var/lib/postgresql/data}
+            - {name: data, mountPath: /var/lib/postgresql}
   volumeClaimTemplates:
     - metadata:
         name: data

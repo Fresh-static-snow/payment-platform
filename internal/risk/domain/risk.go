@@ -69,6 +69,12 @@ func (a Assessment) Validate() error {
 	if a.ID == uuid.Nil {
 		return fmt.Errorf("%w: id must be a valid UUID", ErrInvalidDecision)
 	}
+	return a.ValidateForCreate()
+}
+
+// ValidateForCreate validates risk-decision fields before PostgreSQL assigns
+// the row ID with uuidv7().
+func (a Assessment) ValidateForCreate() error {
 	if a.PaymentID == uuid.Nil {
 		return fmt.Errorf("%w: payment_id must be a valid UUID", ErrInvalidDecision)
 	}

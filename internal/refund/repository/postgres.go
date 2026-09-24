@@ -3,7 +3,6 @@ package repository
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -13,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/praedyth/payment-platform/internal/events"
+	"github.com/praedyth/payment-platform/internal/outbox"
 	paymentdomain "github.com/praedyth/payment-platform/internal/payment/domain"
 	refunddomain "github.com/praedyth/payment-platform/internal/refund/domain"
 )
@@ -113,17 +113,17 @@ func (s *Store) Create(ctx context.Context, params refunddomain.CreateParams) (r
 		return refunddomain.Refund{}, false, refunddomain.ErrRefundAmountExceeded
 	}
 
-	id := uuid.New()
-	workflowID := "refund:" + id.String()
 	refund, scanErr := scanRefund(tx.QueryRow(ctx, `
+		WITH new_uuid AS MATERIALIZED (SELECT uuidv7() AS id)
 		INSERT INTO refunds(
 			id,payment_id,user_id,idempotency_key,request_hash,amount,currency,status,workflow_id
 		)
-		VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)
+		SELECT new_uuid.id,$1,$2,$3,$4,$5,$6,$7,'refund:' || new_uuid.id::text
+		FROM new_uuid
 		ON CONFLICT(user_id,idempotency_key) DO NOTHING
 		RETURNING `+refundColumns,
-		id, params.PaymentID, params.UserID, params.IdempotencyKey, params.RequestHash,
-		params.Amount, currency, refunddomain.StatusPending, workflowID,
+		params.PaymentID, params.UserID, params.IdempotencyKey, params.RequestHash,
+		params.Amount, currency, refunddomain.StatusPending,
 	))
 	created := scanErr == nil
 	if errors.Is(scanErr, refunddomain.ErrRefundNotFound) {
@@ -327,16 +327,5 @@ func insertRefundOutbox(ctx context.Context, tx pgx.Tx, refund refunddomain.Refu
 	if err != nil {
 		return err
 	}
-	raw, err := json.Marshal(envelope)
-	if err != nil {
-		return fmt.Errorf("marshal refund event: %w", err)
-	}
-	_, err = tx.Exec(ctx, `
-		INSERT INTO outbox_events(id,aggregate_id,event_type,payload,request_id,created_at)
-		VALUES($1,$2,$3,$4,$5,$6)
-	`, envelope.ID, refund.ID, envelope.Type, string(raw), requestID, envelope.OccurredAt)
-	if err != nil {
-		return fmt.Errorf("insert refund outbox event: %w", err)
-	}
-	return nil
+	return outbox.Insert(ctx, tx, refund.ID, envelope)
 }

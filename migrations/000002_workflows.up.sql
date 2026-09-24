@@ -1,7 +1,7 @@
 BEGIN;
 
 CREATE TABLE refunds (
-    id UUID PRIMARY KEY,
+    id UUID PRIMARY KEY DEFAULT uuidv7(),
     payment_id UUID NOT NULL REFERENCES payments (id) ON DELETE RESTRICT,
     user_id UUID NOT NULL,
     idempotency_key VARCHAR(255) NOT NULL UNIQUE,
@@ -41,7 +41,7 @@ ALTER TABLE ledger_journals
 CREATE INDEX ledger_journals_payment_idx ON ledger_journals (payment_id, created_at);
 
 CREATE TABLE reconciliation_runs (
-    id UUID PRIMARY KEY,
+    id UUID PRIMARY KEY DEFAULT uuidv7(),
     workflow_id TEXT NOT NULL UNIQUE,
     requested_by TEXT NOT NULL,
     status TEXT NOT NULL CHECK (status IN ('pending', 'running', 'completed', 'failed')),
@@ -57,7 +57,7 @@ CREATE INDEX reconciliation_runs_created_idx
     ON reconciliation_runs (created_at DESC, id DESC);
 
 CREATE TABLE reconciliation_issues (
-    id UUID PRIMARY KEY,
+    id UUID PRIMARY KEY DEFAULT uuidv7(),
     run_id UUID NOT NULL REFERENCES reconciliation_runs (id) ON DELETE CASCADE,
     issue_type TEXT NOT NULL,
     reference_id UUID NOT NULL,

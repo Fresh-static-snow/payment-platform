@@ -60,6 +60,8 @@ make up
 
 Первый запуск загружает крупные образы и может занять несколько минут. Compose применяет миграции, создаёт Kafka topics, регистрирует Debezium connector, импортирует Keycloak realm и инициализирует LocalStack и ClickHouse.
 
+Основная БД приложения использует PostgreSQL 18.6. В официальном образе 18 изменился путь data volume на `/var/lib/postgresql`. Существующий volume с PostgreSQL 17 автоматически не конвертируется: для одноразового локального стенда можно сбросить volumes через `make clean`, затем выполнить `make up`; если данные нужно сохранить, сначала выполните major-version upgrade через `pg_upgrade` или backup/restore.
+
 Проверка:
 
 ```bash

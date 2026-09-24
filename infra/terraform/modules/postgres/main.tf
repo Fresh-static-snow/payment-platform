@@ -52,7 +52,7 @@ resource "aws_vpc_security_group_ingress_rule" "client" {
 
 resource "aws_db_parameter_group" "this" {
   name_prefix = "${var.name}-"
-  family      = "postgres17"
+  family      = "postgres18"
   description = "Payment platform PostgreSQL with logical replication for Debezium"
 
   parameter {
@@ -79,9 +79,10 @@ resource "aws_db_parameter_group" "this" {
 resource "aws_db_instance" "this" {
   identifier = var.name
 
-  engine         = "postgres"
-  engine_version = var.engine_version
-  instance_class = var.instance_class
+  engine                      = "postgres"
+  engine_version              = var.engine_version
+  instance_class              = var.instance_class
+  allow_major_version_upgrade = true
 
   db_name                       = var.database_name
   username                      = var.master_username

@@ -40,6 +40,8 @@ func New(eventType, correlationID, causationID string, payload any) (Envelope, e
 	return NewContext(context.Background(), eventType, correlationID, causationID, payload)
 }
 
+// NewContext builds an envelope. Its event ID stays unset until outbox.Insert
+// assigns the PostgreSQL-generated UUIDv7 that is also stored in the outbox key.
 func NewContext(ctx context.Context, eventType, correlationID, causationID string, payload any) (Envelope, error) {
 	raw, err := json.Marshal(payload)
 	if err != nil {
@@ -48,7 +50,7 @@ func NewContext(ctx context.Context, eventType, correlationID, causationID strin
 	carrier := propagation.MapCarrier{}
 	otel.GetTextMapPropagator().Inject(ctx, carrier)
 	return Envelope{
-		ID:            uuid.New(),
+		ID:            uuid.Nil,
 		Type:          eventType,
 		Version:       1,
 		OccurredAt:    time.Now().UTC(),

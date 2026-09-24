@@ -32,6 +32,36 @@ type event struct {
 	RequestID   string
 }
 
+// Insert persists an event envelope and lets PostgreSQL assign its UUIDv7.
+// For envelopes without an ID, the same database-generated value is written
+// into both outbox_events.id and payload.event_id in one statement.
+func Insert(ctx context.Context, tx pgx.Tx, aggregateID uuid.UUID, envelope events.Envelope) error {
+	payload, err := json.Marshal(envelope)
+	if err != nil {
+		return fmt.Errorf("marshal outbox envelope: %w", err)
+	}
+	if envelope.ID != uuid.Nil {
+		_, err = tx.Exec(ctx, `
+			INSERT INTO outbox_events(id, aggregate_id, event_type, payload, request_id)
+			VALUES($1,$2,$3,$4,$5)`,
+			envelope.ID, aggregateID, envelope.Type, string(payload), envelope.CorrelationID,
+		)
+	} else {
+		_, err = tx.Exec(ctx, `
+			WITH new_uuid AS MATERIALIZED (SELECT uuidv7() AS id)
+			INSERT INTO outbox_events(id, aggregate_id, event_type, payload, request_id)
+			SELECT id, $1, $2,
+				jsonb_set($3::jsonb, '{event_id}', to_jsonb(id::text), true), $4
+			FROM new_uuid`,
+			aggregateID, envelope.Type, string(payload), envelope.CorrelationID,
+		)
+	}
+	if err != nil {
+		return fmt.Errorf("insert outbox event: %w", err)
+	}
+	return nil
+}
+
 func NewRelay(pool *pgxpool.Pool, writer *kafka.Writer, logger *slog.Logger, metrics *platformmetrics.Metrics) *Relay {
 	return &Relay{pool: pool, writer: writer, logger: logger, metrics: metrics, interval: 250 * time.Millisecond, batch: 50}
 }

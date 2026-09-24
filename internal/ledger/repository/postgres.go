@@ -60,19 +60,17 @@ func (r *Postgres) Store(ctx context.Context, consumer string, journal domain.Jo
 		return false, nil
 	}
 
-	inserted, err := tx.Exec(ctx, `
+	var journalID uuid.UUID
+	err = tx.QueryRow(ctx, `
 		INSERT INTO ledger_journals (
-			id,event_id,payment_id,reference_type,reference_id,currency,amount,created_at
+			event_id,payment_id,reference_type,reference_id,currency,amount,created_at
 		)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+		VALUES ($1,$2,$3,$4,$5,$6,$7)
 		ON CONFLICT (reference_type,reference_id) DO NOTHING
-	`, journal.ID, journal.EventID, journal.PaymentID, journal.ReferenceType, journal.ReferenceID,
-		journal.Currency, journal.Amount, journal.CreatedAt)
-	if err != nil {
-		return false, fmt.Errorf("insert ledger journal for %s %s: %w", journal.ReferenceType, journal.ReferenceID, err)
-	}
-
-	if inserted.RowsAffected() == 0 {
+		RETURNING id
+	`, journal.EventID, journal.PaymentID, journal.ReferenceType, journal.ReferenceID,
+		journal.Currency, journal.Amount, journal.CreatedAt).Scan(&journalID)
+	if errors.Is(err, pgx.ErrNoRows) {
 		if err := validateExistingJournal(ctx, tx, journal); err != nil {
 			return false, err
 		}
@@ -81,19 +79,22 @@ func (r *Postgres) Store(ctx context.Context, consumer string, journal domain.Jo
 		}
 		return false, nil
 	}
+	if err != nil {
+		return false, fmt.Errorf("insert ledger journal for %s %s: %w", journal.ReferenceType, journal.ReferenceID, err)
+	}
 
 	for _, entry := range journal.Entries {
 		if _, err := tx.Exec(ctx, `
 			INSERT INTO ledger_entries
-				(id, journal_id, account, direction, amount, currency, created_at)
-			VALUES ($1, $2, $3, $4, $5, $6, $7)
-		`, entry.ID, entry.JournalID, entry.Account, string(entry.Direction), entry.Amount, entry.Currency, entry.CreatedAt); err != nil {
-			return false, fmt.Errorf("insert ledger entry %s: %w", entry.ID, err)
+				(journal_id, account, direction, amount, currency, created_at)
+			VALUES ($1, $2, $3, $4, $5, $6)
+		`, journalID, entry.Account, string(entry.Direction), entry.Amount, entry.Currency, entry.CreatedAt); err != nil {
+			return false, fmt.Errorf("insert ledger entry for journal %s: %w", journalID, err)
 		}
 	}
 
 	if err := tx.Commit(ctx); err != nil {
-		return false, fmt.Errorf("commit ledger journal %s: %w", journal.ID, err)
+		return false, fmt.Errorf("commit ledger journal %s: %w", journalID, err)
 	}
 	return true, nil
 }

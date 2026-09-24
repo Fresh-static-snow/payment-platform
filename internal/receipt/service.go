@@ -15,6 +15,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/praedyth/payment-platform/internal/events"
+	"github.com/praedyth/payment-platform/internal/outbox"
 	"github.com/praedyth/payment-platform/pkg/logging"
 	"github.com/segmentio/kafka-go"
 )
@@ -105,13 +106,7 @@ func (s *Service) Handle(ctx context.Context, message kafka.Message) error {
 	if err != nil {
 		return err
 	}
-	createdRaw, err := json.Marshal(createdEvent)
-	if err != nil {
-		return fmt.Errorf("encode receipt created event: %w", err)
-	}
-	_, err = tx.Exec(ctx, `INSERT INTO outbox_events(id,aggregate_id,event_type,payload,request_id) VALUES($1,$2,$3,$4,$5)`,
-		createdEvent.ID, payload.PaymentID, createdEvent.Type, string(createdRaw), createdEvent.CorrelationID)
-	if err != nil {
+	if err := outbox.Insert(ctx, tx, payload.PaymentID, createdEvent); err != nil {
 		return fmt.Errorf("insert receipt outbox: %w", err)
 	}
 	if err := tx.Commit(ctx); err != nil {

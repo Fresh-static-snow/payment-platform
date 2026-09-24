@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -14,6 +13,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/praedyth/payment-platform/internal/events"
+	"github.com/praedyth/payment-platform/internal/outbox"
 	"github.com/praedyth/payment-platform/internal/payment/domain"
 )
 
@@ -60,13 +60,12 @@ func (s *Store) Create(ctx context.Context, params domain.CreateParams) (domain.
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	id := uuid.New()
 	row := tx.QueryRow(ctx, `
-		INSERT INTO payments (id, idempotency_key, request_hash, user_id, amount, currency, description, status)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		INSERT INTO payments (idempotency_key, request_hash, user_id, amount, currency, description, status)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)
 		ON CONFLICT (user_id, idempotency_key) DO NOTHING
 		RETURNING `+paymentColumns,
-		id, params.IdempotencyKey, params.RequestHash, params.UserID, params.Amount,
+		params.IdempotencyKey, params.RequestHash, params.UserID, params.Amount,
 		strings.ToUpper(params.Currency), params.Description, domain.StatusPending,
 	)
 	payment, scanErr := scanPayment(row)
@@ -102,7 +101,7 @@ func (s *Store) Create(ctx context.Context, params domain.CreateParams) (domain.
 		if err != nil {
 			return domain.Payment{}, false, err
 		}
-		if err := insertOutbox(ctx, tx, payment.ID, envelope); err != nil {
+		if err := outbox.Insert(ctx, tx, payment.ID, envelope); err != nil {
 			return domain.Payment{}, false, err
 		}
 	}
@@ -240,7 +239,7 @@ func (s *Store) Transition(
 	if err != nil {
 		return domain.Payment{}, err
 	}
-	if err := insertOutbox(ctx, tx, updated.ID, envelope); err != nil {
+	if err := outbox.Insert(ctx, tx, updated.ID, envelope); err != nil {
 		return domain.Payment{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -273,12 +272,17 @@ func (s *Store) RequestReceipt(ctx context.Context, id, userID uuid.UUID, reques
 	if payment.Status != domain.StatusCompleted {
 		return false, fmt.Errorf("%w: receipt requires completed payment", domain.ErrInvalidStatusTransition)
 	}
-	eventID := uuid.New()
-	command, err := tx.Exec(ctx, `INSERT INTO receipt_requests(payment_id,event_id) VALUES($1,$2) ON CONFLICT(payment_id) DO NOTHING`, id, eventID)
-	if err != nil {
+	var eventID uuid.UUID
+	err = tx.QueryRow(ctx, `
+		INSERT INTO receipt_requests(payment_id) VALUES($1)
+		ON CONFLICT(payment_id) DO NOTHING
+		RETURNING event_id`, id).Scan(&eventID)
+	created := err == nil
+	if errors.Is(err, pgx.ErrNoRows) {
+		err = nil
+	} else if err != nil {
 		return false, fmt.Errorf("insert receipt request: %w", err)
 	}
-	created := command.RowsAffected() == 1
 	if created {
 		payload := events.ReceiptPayload{PaymentID: id, UserID: payment.UserID, Amount: payment.Amount, Currency: payment.Currency, Status: string(payment.Status)}
 		envelope, err := events.NewContext(ctx, events.ReceiptRequested, requestID, "", payload)
@@ -286,7 +290,7 @@ func (s *Store) RequestReceipt(ctx context.Context, id, userID uuid.UUID, reques
 			return false, err
 		}
 		envelope.ID = eventID
-		if err := insertOutbox(ctx, tx, id, envelope); err != nil {
+		if err := outbox.Insert(ctx, tx, id, envelope); err != nil {
 			return false, err
 		}
 	}
@@ -294,22 +298,6 @@ func (s *Store) RequestReceipt(ctx context.Context, id, userID uuid.UUID, reques
 		return false, fmt.Errorf("commit receipt request: %w", err)
 	}
 	return created, nil
-}
-
-func insertOutbox(ctx context.Context, tx pgx.Tx, aggregateID uuid.UUID, envelope events.Envelope) error {
-	payload, err := json.Marshal(envelope)
-	if err != nil {
-		return fmt.Errorf("marshal outbox envelope: %w", err)
-	}
-	_, err = tx.Exec(ctx, `
-		INSERT INTO outbox_events(id, aggregate_id, event_type, payload, request_id)
-		VALUES($1,$2,$3,$4,$5)`,
-		envelope.ID, aggregateID, envelope.Type, string(payload), envelope.CorrelationID,
-	)
-	if err != nil {
-		return fmt.Errorf("insert outbox event: %w", err)
-	}
-	return nil
 }
 
 func eventForStatus(status domain.Status) (string, bool) {

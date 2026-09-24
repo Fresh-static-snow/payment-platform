@@ -55,13 +55,13 @@ func (r *Repository) CreateRun(ctx context.Context, requestedBy string) (Run, er
 	if requestedBy == "" {
 		return Run{}, fmt.Errorf("%w: requested_by is required", ErrInvalidRun)
 	}
-	id := uuid.New()
-	workflowID := "reconciliation:" + id.String()
 	return scanRun(r.pool.QueryRow(ctx, `
+		WITH new_uuid AS MATERIALIZED (SELECT uuidv7() AS id)
 		INSERT INTO reconciliation_runs(id,workflow_id,requested_by,status)
-		VALUES($1,$2,$3,'pending')
+		SELECT id,'reconciliation:' || id::text,$1,'pending'
+		FROM new_uuid
 		RETURNING `+runColumns+`
-	`, id, workflowID, requestedBy))
+	`, requestedBy))
 }
 
 func (r *Repository) GetRun(ctx context.Context, id uuid.UUID) (Run, error) {
@@ -227,9 +227,9 @@ func (r *Repository) Execute(ctx context.Context, id uuid.UUID) (Run, error) {
 	for _, issue := range issues {
 		summary[issue.kind]++
 		if _, err := tx.Exec(ctx, `
-			INSERT INTO reconciliation_issues(id,run_id,issue_type,reference_id,details)
-			VALUES($1,$2,$3,$4,$5)
-		`, uuid.New(), id, issue.kind, issue.reference, string(issue.details)); err != nil {
+			INSERT INTO reconciliation_issues(run_id,issue_type,reference_id,details)
+			VALUES($1,$2,$3,$4)
+		`, id, issue.kind, issue.reference, string(issue.details)); err != nil {
 			return Run{}, fmt.Errorf("insert reconciliation issue: %w", err)
 		}
 	}

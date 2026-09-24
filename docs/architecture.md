@@ -50,6 +50,10 @@ Realm import содержит public client с direct access grant и извес
 
 Payment repositories читают и меняют данные в контексте authenticated user. Refund можно создать только для completed payment того же пользователя. Search API для обычного пользователя перезаписывает любой query `user_id` значением из token subject; только `payment-admin` может выполнять unscoped/cross-user поиск.
 
+### 2.4 UUID generation
+
+Новые ключи строк и event ID, создаваемые платформой, генерируются в PostgreSQL 18 через `uuidv7()` и defaults исходных миграций `000001` и `000002`. Временная локальность может уменьшить случайные вставки в B-tree индексы новых строк. Существующие UUIDv4 остаются без изменений: PostgreSQL `uuid` допускает смешанные версии, а внешние ссылки и API продолжают принимать любой UUID. `user_id` приходит из OIDC subject, идентификаторы событий от других producers сохраняются как получены. UUIDv7 раскрывает примерное время генерации и не используется как секрет или capability token. Request/correlation IDs не являются ключами строк и остаются UUIDv4.
+
 ## 3. Компоненты и durable state
 
 | Компонент | Вход | Выход | Durable state |

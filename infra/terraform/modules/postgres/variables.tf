@@ -16,7 +16,7 @@ variable "master_username" {
 variable "engine_version" {
   type        = string
   description = "RDS PostgreSQL engine version. Pin this per environment after checking regional availability."
-  default     = "17.11"
+  default     = "18.6"
 }
 
 variable "instance_class" {

@@ -54,12 +54,10 @@ type Journal struct {
 // NewPaymentJournal records the provider clearing asset and the matching
 // merchant liability. Amounts remain positive; Direction carries the sign.
 func NewPaymentJournal(eventID, paymentID uuid.UUID, currency string, amount int64, occurredAt time.Time) (Journal, error) {
-	journalID := uuid.New()
 	currency = strings.ToUpper(strings.TrimSpace(currency))
 	createdAt := occurredAt.UTC()
 
 	journal := Journal{
-		ID:            journalID,
 		EventID:       eventID,
 		PaymentID:     paymentID,
 		ReferenceType: "payment",
@@ -69,8 +67,6 @@ func NewPaymentJournal(eventID, paymentID uuid.UUID, currency string, amount int
 		CreatedAt:     createdAt,
 		Entries: []Entry{
 			{
-				ID:        uuid.New(),
-				JournalID: journalID,
 				Account:   string(ProviderClearingAccount),
 				Direction: Debit,
 				Amount:    amount,
@@ -78,8 +74,6 @@ func NewPaymentJournal(eventID, paymentID uuid.UUID, currency string, amount int
 				CreatedAt: createdAt,
 			},
 			{
-				ID:        uuid.New(),
-				JournalID: journalID,
 				Account:   string(MerchantPayableAccount),
 				Direction: Credit,
 				Amount:    amount,
@@ -98,11 +92,9 @@ func NewPaymentJournal(eventID, paymentID uuid.UUID, currency string, amount int
 // NewRefundJournal reverses the original payment direction: the merchant
 // payable liability is debited and the provider clearing asset is credited.
 func NewRefundJournal(eventID, refundID, paymentID uuid.UUID, currency string, amount int64, occurredAt time.Time) (Journal, error) {
-	journalID := uuid.New()
 	currency = strings.ToUpper(strings.TrimSpace(currency))
 	createdAt := occurredAt.UTC()
 	journal := Journal{
-		ID:            journalID,
 		EventID:       eventID,
 		PaymentID:     paymentID,
 		ReferenceType: "refund",
@@ -112,12 +104,10 @@ func NewRefundJournal(eventID, refundID, paymentID uuid.UUID, currency string, a
 		CreatedAt:     createdAt,
 		Entries: []Entry{
 			{
-				ID: uuid.New(), JournalID: journalID,
 				Account: string(MerchantPayableAccount), Direction: Debit,
 				Amount: amount, Currency: currency, CreatedAt: createdAt,
 			},
 			{
-				ID: uuid.New(), JournalID: journalID,
 				Account: string(ProviderClearingAccount), Direction: Credit,
 				Amount: amount, Currency: currency, CreatedAt: createdAt,
 			},
@@ -130,12 +120,11 @@ func NewRefundJournal(eventID, refundID, paymentID uuid.UUID, currency string, a
 }
 
 // Validate enforces double-entry invariants before any database transaction is
-// opened. Each side must equal the journal amount, so a balanced but unrelated
-// set of entries cannot be stored under the journal.
+// opened. An unpersisted draft has all database IDs unset; after persistence,
+// the journal ID and each entry ID/reference must be populated. Each side must
+// equal the journal amount, so unrelated balanced entries cannot be stored.
 func (j Journal) Validate() error {
-	if j.ID == uuid.Nil {
-		return fmt.Errorf("%w: journal id is required", ErrInvalidJournal)
-	}
+	idsAssigned := j.ID != uuid.Nil
 	if j.EventID == uuid.Nil {
 		return fmt.Errorf("%w: event id is required", ErrInvalidJournal)
 	}
@@ -164,16 +153,21 @@ func (j Journal) Validate() error {
 	entryIDs := make(map[uuid.UUID]struct{}, len(j.Entries))
 	var debitTotal, creditTotal int64
 	for index, entry := range j.Entries {
-		if entry.ID == uuid.Nil {
-			return fmt.Errorf("%w: entry %d id is required", ErrInvalidJournal, index)
+		if idsAssigned {
+			if entry.ID == uuid.Nil {
+				return fmt.Errorf("%w: entry %d id is required", ErrInvalidJournal, index)
+			}
+			if entry.JournalID != j.ID {
+				return fmt.Errorf("%w: entry %d belongs to another journal", ErrInvalidJournal, index)
+			}
+		} else if entry.ID != uuid.Nil || entry.JournalID != uuid.Nil {
+			return fmt.Errorf("%w: journal IDs must be assigned together", ErrInvalidJournal)
 		}
-		if _, exists := entryIDs[entry.ID]; exists {
-			return fmt.Errorf("%w: duplicate entry id %s", ErrInvalidJournal, entry.ID)
-		}
-		entryIDs[entry.ID] = struct{}{}
-
-		if entry.JournalID != j.ID {
-			return fmt.Errorf("%w: entry %d belongs to another journal", ErrInvalidJournal, index)
+		if entry.ID != uuid.Nil {
+			if _, exists := entryIDs[entry.ID]; exists {
+				return fmt.Errorf("%w: duplicate entry id %s", ErrInvalidJournal, entry.ID)
+			}
+			entryIDs[entry.ID] = struct{}{}
 		}
 		if strings.TrimSpace(entry.Account) == "" {
 			return fmt.Errorf("%w: entry %d account is required", ErrInvalidJournal, index)

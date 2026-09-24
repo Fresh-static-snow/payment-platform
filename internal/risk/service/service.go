@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/praedyth/payment-platform/internal/risk/domain"
 )
 
@@ -28,7 +27,6 @@ type Service struct {
 	repository Repository
 	evaluator  Evaluator
 	now        func() time.Time
-	newID      func() uuid.UUID
 }
 
 func New(repository Repository, evaluator Evaluator) (*Service, error) {
@@ -45,7 +43,6 @@ func New(repository Repository, evaluator Evaluator) (*Service, error) {
 		repository: repository,
 		evaluator:  evaluator,
 		now:        func() time.Time { return time.Now().UTC() },
-		newID:      uuid.New,
 	}, nil
 }
 
@@ -59,7 +56,6 @@ func (s *Service) Assess(ctx context.Context, payment domain.Payment) (domain.As
 	}
 
 	candidate := domain.Assessment{
-		ID:           s.newID(),
 		PaymentID:    payment.ID,
 		RulesVersion: s.evaluator.RulesVersion(),
 		Score:        evaluation.Score,
@@ -67,7 +63,7 @@ func (s *Service) Assess(ctx context.Context, payment domain.Payment) (domain.As
 		Reasons:      append([]string(nil), evaluation.Reasons...),
 		CreatedAt:    s.now(),
 	}
-	if err := candidate.Validate(); err != nil {
+	if err := candidate.ValidateForCreate(); err != nil {
 		return domain.Assessment{}, fmt.Errorf("build risk decision: %w", err)
 	}
 

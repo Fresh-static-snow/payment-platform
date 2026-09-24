@@ -1,7 +1,7 @@
 BEGIN;
 
 CREATE TABLE payments (
-    id UUID PRIMARY KEY,
+    id UUID PRIMARY KEY DEFAULT uuidv7(),
     idempotency_key VARCHAR(255) NOT NULL UNIQUE,
     request_hash BYTEA NOT NULL,
     user_id UUID NOT NULL,
@@ -22,7 +22,7 @@ CREATE INDEX payments_status_idx ON payments (status);
 CREATE INDEX payments_created_at_idx ON payments (created_at DESC);
 
 CREATE TABLE outbox_events (
-    id UUID PRIMARY KEY,
+    id UUID PRIMARY KEY DEFAULT uuidv7(),
     aggregate_id UUID NOT NULL,
     event_type TEXT NOT NULL,
     payload JSONB NOT NULL,
@@ -51,7 +51,7 @@ CREATE INDEX consumer_inbox_processed_at_idx
 
 CREATE TABLE receipt_requests (
     payment_id UUID PRIMARY KEY REFERENCES payments (id) ON DELETE CASCADE,
-    event_id UUID NOT NULL UNIQUE,
+    event_id UUID NOT NULL DEFAULT uuidv7() UNIQUE,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
@@ -64,7 +64,7 @@ CREATE TABLE receipts (
 );
 
 CREATE TABLE risk_decisions (
-    id UUID PRIMARY KEY,
+    id UUID PRIMARY KEY DEFAULT uuidv7(),
     payment_id UUID NOT NULL REFERENCES payments (id) ON DELETE CASCADE,
     rules_version TEXT NOT NULL,
     score INTEGER NOT NULL CHECK (score BETWEEN 0 AND 100),
@@ -75,7 +75,7 @@ CREATE TABLE risk_decisions (
 );
 
 CREATE TABLE ledger_journals (
-    id UUID PRIMARY KEY,
+    id UUID PRIMARY KEY DEFAULT uuidv7(),
     event_id UUID NOT NULL UNIQUE,
     payment_id UUID NOT NULL UNIQUE,
     currency CHAR(3) NOT NULL CHECK (currency ~ '^[A-Z]{3}$'),
@@ -84,7 +84,7 @@ CREATE TABLE ledger_journals (
 );
 
 CREATE TABLE ledger_entries (
-    id UUID PRIMARY KEY,
+    id UUID PRIMARY KEY DEFAULT uuidv7(),
     journal_id UUID NOT NULL REFERENCES ledger_journals (id) ON DELETE CASCADE,
     account TEXT NOT NULL CHECK (length(btrim(account)) > 0),
     direction TEXT NOT NULL CHECK (direction IN ('debit', 'credit')),
@@ -98,7 +98,7 @@ CREATE INDEX ledger_entries_account_created_idx
     ON ledger_entries (account, created_at DESC);
 
 CREATE TABLE notification_deliveries (
-    id UUID PRIMARY KEY,
+    id UUID PRIMARY KEY DEFAULT uuidv7(),
     event_id UUID NOT NULL UNIQUE,
     payment_id UUID NOT NULL,
     user_id UUID NOT NULL,

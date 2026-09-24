@@ -28,7 +28,7 @@ func (r *Postgres) GetOrCreate(ctx context.Context, candidate domain.Assessment)
 	if r == nil || r.pool == nil {
 		return domain.Assessment{}, errors.New("risk repository has no database pool")
 	}
-	if err := candidate.Validate(); err != nil {
+	if err := candidate.ValidateForCreate(); err != nil {
 		return domain.Assessment{}, err
 	}
 	reasons, err := json.Marshal(candidate.Reasons)
@@ -38,11 +38,10 @@ func (r *Postgres) GetOrCreate(ctx context.Context, candidate domain.Assessment)
 
 	row := r.pool.QueryRow(ctx, `
 		INSERT INTO risk_decisions (
-			id, payment_id, rules_version, score, decision, reasons, created_at
-		) VALUES ($1, $2, $3, $4, $5, $6, $7)
+			payment_id, rules_version, score, decision, reasons, created_at
+		) VALUES ($1, $2, $3, $4, $5, $6)
 		ON CONFLICT (payment_id, rules_version) DO NOTHING
 		RETURNING id, payment_id, rules_version, score, decision, reasons, created_at`,
-		candidate.ID,
 		candidate.PaymentID,
 		candidate.RulesVersion,
 		candidate.Score,

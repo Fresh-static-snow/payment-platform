@@ -7,7 +7,7 @@ This stack provisions the managed infrastructure for the payment platform. It de
 - a multi-AZ VPC with public, private, and isolated data subnets, NAT gateways, VPC flow logs, S3 and interface endpoints;
 - encrypted ECR repositories with immutable tags, scan-on-push, and lifecycle policies;
 - an encrypted EKS cluster, managed node groups, control-plane logs, API access entries, add-ons, and an OIDC provider for IRSA;
-- RDS PostgreSQL 17 with AWS-managed master credentials, backups/PITR controls, deletion protection, Performance Insights, and logical replication parameters for Debezium;
+- RDS PostgreSQL 18.6 with AWS-managed master credentials, backups/PITR controls, deletion protection, Performance Insights, and logical replication parameters for Debezium;
 - ElastiCache Redis with TLS, replication/failover, snapshots, and credentials in Secrets Manager;
 - Amazon MSK with TLS, broker logs, Prometheus exporters, encrypted EBS, plus idempotent application/DLQ/Connect topic creation from EKS;
 - VPC OpenSearch with TLS, encryption, fine-grained access control, audit/application logs, and credentials in Secrets Manager;
